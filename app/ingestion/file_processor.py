@@ -37,17 +37,6 @@ def calculate_file_hash(file_path: str) -> str:
     return sha256_hash.hexdigest()
 
 
-def check_if_file_processed(db: Session, job_id: str, file_hash: str) -> bool:
-    """Checks if a file with the same hash has already been processed for this job."""
-    existing_file = db.query(IngestionFile).filter(
-        IngestionFile.job_id == job_id,
-        IngestionFile.file_hash == file_hash
-    ).first()
-    
-    if existing_file:
-        print(f"  [!] Idempotency check: File with hash {file_hash[:10]}... already processed for this job. Skipping.")
-        return True
-    return False
 
 
 # --- CORE PROCESSING LOGIC ---
@@ -59,13 +48,17 @@ def process_file(file_path: str, client_id: str, file_id: str, job_id: str, db: 
     print(f"--- Starting processing for file: {file_path} ---")
 
     try:
-        # 1. Idempotency Check
+        # 1. Calculate Hash and Attempt to Save (Idempotency Check)
         file_hash = calculate_file_hash(file_path)
-        if check_if_file_processed(db, job_id, file_hash):
-            # Update the file record with the hash
+        try:
+            # Atomically update the file record with the hash.
             db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"file_hash": file_hash})
             db.commit()
-            return # Skip the rest of the processing
+        except IntegrityError:
+            # This error means the (job_id, file_hash) combination already exists.
+            db.rollback() # Rollback the failed transaction
+            print(f"  [!] Idempotency check: File with hash {file_hash[:10]}... already processed for this job. Skipping.")
+            return # Stop processing this file
 
         # 2. Parse Content using the factory
         parser = get_parser(file_path)
@@ -74,14 +67,7 @@ def process_file(file_path: str, client_id: str, file_id: str, job_id: str, db: 
         
         if not content.strip():
             print("  > No content extracted. Skipping further processing.")
-            # Still update the hash even if no content
-            db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"file_hash": file_hash})
-            db.commit()
             return
-
-        # Update file record with hash before proceeding
-        db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"file_hash": file_hash})
-        db.commit()
 
         # 3. Cache Raw Content in MongoDB
         mongo_db_document = {
