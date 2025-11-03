@@ -7,9 +7,8 @@ import os
 
 # Add the app directory to Python path so we can import our application code
 sys.path.insert(0, '/opt/airflow/app')
-# Add user site-packages where packages are installed (chromadb, etc.)
-import site
-site.addsitedir('/home/airflow/.local/lib/python3.12/site-packages')
+# Add custom packages directory at the END of path to avoid overriding Airflow's packages
+sys.path.append('/opt/airflow/custom_packages')
 
 from airflow.models.dag import DAG
 from airflow.operators.python import PythonOperator

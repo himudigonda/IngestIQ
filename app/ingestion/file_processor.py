@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from app.core.config import settings
-from app.core.models import IngestionFile, StatusEnum, ProcessingError
-from app.ingestion.parsers import get_parser
+from core.config import settings
+from core.models import IngestionFile, StatusEnum, ProcessingError
+from ingestion.parsers import get_parser
 
 # --- CLIENT INITIALIZATION ---
 # These clients are initialized once when the module is imported.
