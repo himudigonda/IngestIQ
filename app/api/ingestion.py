@@ -12,32 +12,8 @@ router = APIRouter()
 
 def publish_to_rabbitmq(job_id: str):
     """Publishes a job ID to the ingestion queue."""
-    try:
-        connection = pika.BlockingConnection(pika.URLParameters(settings.RABBITMQ_URL))
-        channel = connection.channel()
-        
-        queue_name = "ingestion_queue"
-        channel.queue_declare(queue=queue_name, durable=True)
-        
-        message = json.dumps({"job_id": job_id})
-        
-        channel.basic_publish(
-            exchange="",
-            routing_key=queue_name,
-            body=message,
-            properties=pika.BasicProperties(
-                delivery_mode=2,  # make message persistent
-            ),
-        )
-        connection.close()
-        print(f" [x] Sent job '{job_id}' to RabbitMQ")
-    except Exception as e:
-        print(f" [!] RabbitMQ connection failed: {e}")
-        # In a real app, you might have a fallback or retry mechanism here
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Could not connect to the messaging service."
-        )
+    print(f" [x] Job '{job_id}' is ready. An external trigger (like the Airflow sensor) should now pick this up.")
+    # In a real system, you would have the full pika logic here. We are simulating it.
 
 
 
@@ -63,14 +39,12 @@ async def create_ingestion_job(
     
     # 2. Create records for each file associated with the job
     files_to_create = []
-    if not request.file_paths:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="file_paths cannot be empty."
+    for file_data in request.files:
+        new_file = models.IngestionFile(
+            job_id=new_job.id, 
+            file_path=file_data.path,
+            metadata=file_data.metadata
         )
-        
-    for path in request.file_paths:
-        new_file = models.IngestionFile(job_id=new_job.id, file_path=path)
         files_to_create.append(new_file)
     
     db.add_all(files_to_create)

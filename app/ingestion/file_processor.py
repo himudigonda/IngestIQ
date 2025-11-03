@@ -1,13 +1,14 @@
 import chromadb
 import openai
 import hashlib
+import traceback
 from pymongo import MongoClient
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.core.config import settings
-from app.core.models import IngestionFile, StatusEnum
+from app.core.models import IngestionFile, StatusEnum, ProcessingError
 from app.ingestion.parsers import get_parser
 
 # --- CLIENT INITIALIZATION ---
@@ -40,86 +41,105 @@ def calculate_file_hash(file_path: str) -> str:
 
 
 # --- CORE PROCESSING LOGIC ---
-def process_file(file_path: str, client_id: str, file_id: str, job_id: str, db: Session):
+def process_file(file_info: dict, db: Session):
     """
     The core logic for processing a single file.
     Orchestrates parsing, caching, chunking, embedding, and storage.
+    Now includes robust error handling.
+    
+    Args:
+        file_info: A dictionary containing file details like id, path, etc.
+        db: An active SQLAlchemy session.
     """
-    print(f"--- Starting processing for file: {file_path} ---")
+    file_id = file_info['id']
+    file_path = file_info['path']
+    job_id = file_info['job_id']
+    client_id = file_info['client_id']
+    custom_metadata = file_info.get('metadata', {}) or {}
 
+    print(f"--- Starting processing for file: {file_path} (ID: {file_id}) ---")
+    
     try:
-        # 1. Calculate Hash and Attempt to Save (Idempotency Check)
+        # 1. Update file status to PROCESSING
+        db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"status": StatusEnum.PROCESSING})
+        db.commit()
+
+        # 2. Idempotency Check
         file_hash = calculate_file_hash(file_path)
         try:
-            # Atomically update the file record with the hash.
             db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"file_hash": file_hash})
             db.commit()
         except IntegrityError:
-            # This error means the (job_id, file_hash) combination already exists.
-            db.rollback() # Rollback the failed transaction
-            print(f"  [!] Idempotency check: File with hash {file_hash[:10]}... already processed for this job. Skipping.")
-            return # Stop processing this file
+            db.rollback()
+            print(f"  [!] Idempotency check: A different file with this hash already exists for this job. Skipping.")
+            db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"status": StatusEnum.FAILED})
+            db.commit()
+            return
 
-        # 2. Parse Content using the factory
+        # 3. Parse, Cache, Chunk, Embed, Store...
         parser = get_parser(file_path)
         content = parser.parse(file_path)
-        print(f"  > Parsed {len(content)} characters from file.")
         
         if not content.strip():
-            print("  > No content extracted. Skipping further processing.")
+            print("  > No content extracted. Marking as complete.")
+            db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"status": StatusEnum.COMPLETED})
+            db.commit()
             return
+            
+        raw_content_collection.replace_one({"file_id": file_id}, {
+            "file_id": file_id, "job_id": job_id, "client_id": client_id,
+            "file_path": file_path, "content": content, "hash": file_hash,
+        }, upsert=True)
 
-        # 3. Cache Raw Content in MongoDB
-        mongo_db_document = {
-            "file_id": file_id,
-            "job_id": job_id,
-            "client_id": client_id,
-            "file_path": file_path,
-            "content": content,
-            "hash": file_hash,
-        }
-        raw_content_collection.replace_one({"file_id": file_id}, mongo_db_document, upsert=True)
-        print(f"  > Cached raw text content in MongoDB.")
-
-        # 4. Chunk Text
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
-            length_function=len,
-        )
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200, length_function=len)
         chunks = text_splitter.split_text(content)
-        print(f"  > Split content into {len(chunks)} chunks.")
 
         if not chunks:
+            db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"status": StatusEnum.COMPLETED})
+            db.commit()
             return
-
-        # 5. Generate Embeddings
-        response = openai_client.embeddings.create(
-            input=chunks, model=settings.OPENAI_EMBEDDINGS_MODEL
-        )
+            
+        response = openai_client.embeddings.create(input=chunks, model=settings.OPENAI_EMBEDDINGS_MODEL)
         embeddings = [item.embedding for item in response.data]
-        print(f"  > Generated {len(embeddings)} embeddings from OpenAI.")
-
-        # 6. Prepare for Vector Storage
+        
         ids = [f"{file_id}_{i}" for i in range(len(chunks))]
-        metadatas = [
-            {
+        
+        # --- ENHANCED METADATA ---
+        metadatas = []
+        for i in range(len(chunks)):
+            # Start with the custom metadata provided by the user
+            chunk_metadata = custom_metadata.copy()
+            # Add our internal, system-level metadata
+            chunk_metadata.update({
                 "client_id": client_id,
                 "file_path": file_path,
                 "file_id": file_id,
                 "job_id": job_id,
                 "chunk_number": i,
-                # Add more enhanced metadata here in the future
-            }
-            for i in range(len(chunks))
-        ]
-
-        # 7. Store in ChromaDB
+            })
+            metadatas.append(chunk_metadata)
+        
         vector_collection.add(ids=ids, embeddings=embeddings, documents=chunks, metadatas=metadatas)
-        print(f"  > Successfully stored {len(chunks)} vectors in ChromaDB.")
+        
+        # 4. Update file status to COMPLETED
+        db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"status": StatusEnum.COMPLETED})
+        db.commit()
+        
         print(f"--- Finished processing for file: {file_path} ---")
 
     except Exception as e:
+        db.rollback()
         print(f" [!] ERROR processing file {file_path}: {e}")
-        # In Phase 4, we will log this error to the database instead of just raising it.
-        raise
+        
+        # Log the error to the database
+        error_message = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
+        error_record = ProcessingError(
+            job_id=job_id,
+            file_id=file_id,
+            error_message=error_message
+        )
+        db.add(error_record)
+        
+        # Mark the specific file as FAILED
+        db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"status": StatusEnum.FAILED})
+        db.commit()
