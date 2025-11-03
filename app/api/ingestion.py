@@ -1,7 +1,8 @@
 import json
 import pika
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, subqueryload
 
 from core import models, schemas
 from core.config import settings
@@ -61,5 +62,92 @@ async def create_ingestion_job(
         message="Ingestion job created and queued for processing.",
         status=new_job.status.value,
         file_count=len(files_to_create),
+    )
+
+
+# --- MONITORING ENDPOINTS ---
+
+@router.get(
+    "/jobs/{job_id}",
+    response_model=schemas.JobStatusResponse,
+    tags=["Monitoring"]
+)
+async def get_job_status(job_id: uuid.UUID, db: Session = Depends(get_db)):
+    """
+    Retrieves the detailed status of a specific ingestion job,
+    including the status of all its files and any errors.
+    """
+    job = db.query(models.IngestionJob).options(
+        subqueryload(models.IngestionJob.files),
+        subqueryload(models.IngestionJob.errors).joinedload(models.ProcessingError.file)
+    ).filter(models.IngestionJob.id == job_id).first()
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job with ID '{job_id}' not found."
+        )
+
+    file_statuses = [
+        schemas.FileStatus(
+            file_path=file.file_path,
+            status=file.status.value,
+            file_hash=file.file_hash
+        ) for file in job.files
+    ]
+    
+    error_details = [
+        schemas.ErrorDetail(
+            file_path=error.file.file_path,
+            error_message=error.error_message,
+            timestamp=error.created_at
+        ) for error in job.errors
+    ]
+
+    return schemas.JobStatusResponse(
+        job_id=job.id,
+        client_id=job.client_id,
+        status=job.status.value,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        files=file_statuses,
+        errors=error_details,
+    )
+
+
+@router.get(
+    "/jobs/client/{client_id}",
+    response_model=schemas.JobListResponse,
+    tags=["Monitoring"]
+)
+async def get_jobs_for_client(client_id: str, db: Session = Depends(get_db)):
+    """
+    Retrieves a list of all ingestion jobs for a specific client.
+    """
+    jobs = db.query(models.IngestionJob).options(
+        joinedload(models.IngestionJob.files)
+    ).filter(models.IngestionJob.client_id == client_id).order_by(
+        models.IngestionJob.created_at.desc()
+    ).all()
+
+    if not jobs:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No jobs found for client ID '{client_id}'."
+        )
+
+    job_summaries = [
+        schemas.JobSummary(
+            job_id=job.id,
+            status=job.status.value,
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+            file_count=len(job.files)
+        ) for job in jobs
+    ]
+
+    return schemas.JobListResponse(
+        client_id=client_id,
+        jobs=job_summaries
     )
 
