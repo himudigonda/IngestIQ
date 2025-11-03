@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from app.api import ingestion # Import the new router
-from app.core.database import create_db_and_tables # Import the init function
+from api import ingestion # Import the new router
+from core.database import create_db_and_tables # Import the init function
 
 
 @asynccontextmanager

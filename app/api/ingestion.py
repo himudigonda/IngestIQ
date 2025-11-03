@@ -3,9 +3,9 @@ import pika
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core import models, schemas
-from app.core.config import settings
-from app.core.database import get_db
+from core import models, schemas
+from core.config import settings
+from core.database import get_db
 
 router = APIRouter()
 
@@ -43,7 +43,7 @@ async def create_ingestion_job(
         new_file = models.IngestionFile(
             job_id=new_job.id, 
             file_path=file_data.path,
-            metadata=file_data.metadata
+            file_metadata=file_data.metadata
         )
         files_to_create.append(new_file)
     

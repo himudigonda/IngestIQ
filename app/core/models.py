@@ -40,7 +40,7 @@ class IngestionFile(Base):
     file_path = Column(String, nullable=False)
     status = Column(Enum(StatusEnum), nullable=False, default=StatusEnum.PENDING)
     file_hash = Column(String, nullable=True, index=True)
-    metadata = Column(JSONB, nullable=True)
+    file_metadata = Column("metadata", JSONB, nullable=True)  # Using "metadata" as the DB column name but file_metadata as the attribute
 
     job = relationship("IngestionJob", back_populates="files")
     error = relationship("ProcessingError", back_populates="file", uselist=False)

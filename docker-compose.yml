@@ -10,11 +10,13 @@ services:
     volumes:
       - ./app:/app
     env_file: .env
+    environment:
+      - PYTHONPATH=/app
     depends_on:
       - postgres
       - mongo
       - rabbitmq
-    command: uvicorn app.main_api:app --host 0.0.0.0 --port 8000 --reload
+    command: sh -c "cd /app && python -m uvicorn main_api:app --host 0.0.0.0 --port 8000"
 
   # 2. PostgreSQL for Metadata & State
   postgres:

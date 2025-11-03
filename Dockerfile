@@ -36,6 +36,8 @@ RUN chown -R appuser:appgroup /app
 
 # Activate the virtual environment by adding it to the PATH
 ENV PATH="/opt/venv/bin:$PATH"
+# Set PYTHONPATH to include the app directory
+ENV PYTHONPATH="/app:$PYTHONPATH"
 
 # Switch to the non-root user
 USER appuser

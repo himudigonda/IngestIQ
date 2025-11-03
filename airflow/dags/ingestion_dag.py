@@ -45,7 +45,7 @@ def get_files_for_job(job_id: str):
                 "path": os.path.join("/opt/airflow", file.file_path) if not os.path.isabs(file.file_path) else file.file_path,
                 "job_id": str(job.id),
                 "client_id": job.client_id,
-                "metadata": file.metadata or {},
+                "metadata": file.file_metadata or {},
             }
             for file in job.files
         ]
