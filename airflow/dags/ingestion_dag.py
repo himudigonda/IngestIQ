@@ -9,11 +9,12 @@ import os
 sys.path.insert(0, '/opt/airflow/app')
 
 from airflow.models.dag import DAG
-from airflow.providers.rabbitmq.sensors.rabbitmq import RabbitMQSensor
 from airflow.operators.python import PythonOperator
+from airflow.sensors.python import PythonSensor
 
 from sqlalchemy import create_engine, update
 from sqlalchemy.orm import sessionmaker
+import pika
 
 # Import our application code
 from app.core.models import IngestionJob, IngestionFile, StatusEnum
@@ -24,14 +25,47 @@ DATABASE_URL = "postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+# RabbitMQ connection URL
+RABBITMQ_URL = "amqp://ingestiq:supersecretpassword@rabbitmq:5672/"
+
 
 def get_db_session():
     return SessionLocal()
 
 
+def wait_for_rabbitmq_message(**context):
+    """Wait for a message in the RabbitMQ queue."""
+    try:
+        connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
+        channel = connection.channel()
+        
+        queue_name = "ingestion_queue"
+        channel.queue_declare(queue=queue_name, durable=True)
+        
+        # Use basic_get to retrieve a message (non-blocking)
+        method_frame, header_frame, body = channel.basic_get(queue=queue_name, auto_ack=False)
+        
+        if method_frame:
+            # Store the message in XCom for the next task
+            context['ti'].xcom_push(key='rabbitmq_message', value=body.decode('utf-8'))
+            # Acknowledge the message
+            channel.basic_ack(delivery_tag=method_frame.delivery_tag)
+            connection.close()
+            return True
+        else:
+            connection.close()
+            return False
+    except Exception as e:
+        print(f"Error checking RabbitMQ queue: {e}")
+        return False
+
+
 def set_job_status_as_processing(**context):
     """Update the job status in Postgres to PROCESSING."""
-    message = json.loads(context["ti"].xcom_pull(task_ids="read_job_from_queue")[0])
+    message_str = context["ti"].xcom_pull(task_ids="read_job_from_queue", key='rabbitmq_message')
+    if not message_str:
+        raise ValueError("No message received from RabbitMQ")
+    message = json.loads(message_str)
     job_id = message['job_id']
     
     db = get_db_session()
@@ -97,10 +131,12 @@ with DAG(
     tags=["ingestion", "rag"],
 ) as dag:
     # Task 1: Wait for a message on the RabbitMQ queue
-    read_job_from_queue = RabbitMQSensor(
+    read_job_from_queue = PythonSensor(
         task_id="read_job_from_queue",
-        rabbitmq_conn_id="amqp_default", # Airflow's default connection ID for RabbitMQ
-        queue="ingestion_queue",
+        python_callable=wait_for_rabbitmq_message,
+        poke_interval=10,  # Check every 10 seconds
+        timeout=3600,  # Timeout after 1 hour
+        mode="poke",
     )
 
     # Task 2: Update the job's status in our database

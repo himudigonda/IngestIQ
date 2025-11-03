@@ -14,7 +14,8 @@ COPY pyproject.toml ./
 
 # Install dependencies into the virtual environment using uv
 # This ensures all packages, including native extensions, are compiled here.
-RUN uv pip install --system --no-cache -r pyproject.toml --python /opt/venv/bin/python
+# uv pip install . installs from pyproject.toml
+RUN uv pip install --system --no-cache . --python /opt/venv/bin/python
 
 # Stage 2: The Final Production Image
 # Use a slim image for a smaller footprint

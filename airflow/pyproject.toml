@@ -1,0 +1,20 @@
+[project]
+name = "ingestiq-airflow"
+version = "0.1.0"
+description = "Airflow dependencies for IngestIQ"
+requires-python = ">=3.11"
+dependencies = [
+    # Airflow providers
+    "apache-airflow-providers-postgres",
+    # Application-specific dependencies
+    "pika",
+    "openai",
+    "langchain-text-splitters",
+    "chromadb",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "pydantic-settings",
+    "python-dotenv",
+    "tenacity",
+]
+

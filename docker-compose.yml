@@ -53,8 +53,16 @@ services:
       context: ./airflow
       dockerfile_inline: |
         FROM apache/airflow:2.9.2
-        COPY requirements.txt /
-        RUN pip install --no-cache-dir -r /requirements.txt
+        USER root
+        RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+            curl -LsSf https://astral.sh/uv/install.sh | sh && \
+            mv /root/.local/bin/uv /usr/local/bin/uv && \
+            rm -rf /root/.local && \
+            apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+        WORKDIR /airflow
+        COPY pyproject.toml ./
+        RUN uv pip install --system --no-cache .
+        USER airflow
     container_name: ingestiq_airflow_webserver
     ports:
       - "8080:8080"
@@ -80,8 +88,16 @@ services:
       context: ./airflow
       dockerfile_inline: |
         FROM apache/airflow:2.9.2
-        COPY requirements.txt /
-        RUN pip install --no-cache-dir -r /requirements.txt
+        USER root
+        RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+            curl -LsSf https://astral.sh/uv/install.sh | sh && \
+            mv /root/.local/bin/uv /usr/local/bin/uv && \
+            rm -rf /root/.local && \
+            apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+        WORKDIR /airflow
+        COPY pyproject.toml ./
+        RUN uv pip install --system --no-cache .
+        USER airflow
     container_name: ingestiq_airflow_scheduler
     volumes:
       - ./airflow/dags:/opt/airflow/dags
@@ -105,8 +121,16 @@ services:
       context: ./airflow
       dockerfile_inline: |
         FROM apache/airflow:2.9.2
-        COPY requirements.txt /
-        RUN pip install --no-cache-dir -r /requirements.txt
+        USER root
+        RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+            curl -LsSf https://astral.sh/uv/install.sh | sh && \
+            mv /root/.local/bin/uv /usr/local/bin/uv && \
+            rm -rf /root/.local && \
+            apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+        WORKDIR /airflow
+        COPY pyproject.toml ./
+        RUN uv pip install --system --no-cache .
+        USER airflow
     container_name: ingestiq_airflow_worker
     volumes:
       - ./airflow/dags:/opt/airflow/dags
@@ -131,8 +155,16 @@ services:
       context: ./airflow
       dockerfile_inline: |
         FROM apache/airflow:2.9.2
-        COPY requirements.txt /
-        RUN pip install --no-cache-dir -r /requirements.txt
+        USER root
+        RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+            curl -LsSf https://astral.sh/uv/install.sh | sh && \
+            mv /root/.local/bin/uv /usr/local/bin/uv && \
+            rm -rf /root/.local && \
+            apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+        WORKDIR /airflow
+        COPY pyproject.toml ./
+        RUN uv pip install --system --no-cache .
+        USER airflow
     container_name: ingestiq_airflow_init
     volumes:
       - ./airflow/dags:/opt/airflow/dags

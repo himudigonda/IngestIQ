@@ -1,8 +1,8 @@
 # These packages are needed by the Airflow workers to execute our processing tasks.
 apache-airflow-providers-postgres
-apache-airflow-providers-rabbitmq
 
 # Application-specific dependencies
+pika
 openai
 langchain-text-splitters
 chromadb

@@ -57,3 +57,4 @@ Thumbs.db
 htmlcov/
 
 dumper.sh
+uv.lock
