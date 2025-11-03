@@ -16,5 +16,6 @@ dependencies = [
     "pydantic-settings",
     "python-dotenv",
     "tenacity",
+    "pymongo",
 ]
 

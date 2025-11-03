@@ -103,7 +103,8 @@ def process_all_files_for_job(**context):
                 file_path=file_path,
                 client_id=job.client_id,
                 file_id=str(file.id),
-                job_id=str(job.id)
+                job_id=str(job.id),
+                db=db
             )
     finally:
         db.close()

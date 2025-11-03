@@ -1,34 +1,101 @@
 import chromadb
 import openai
+import hashlib
+from pymongo import MongoClient
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.core.config import settings
+from app.core.models import IngestionFile, StatusEnum
+from app.ingestion.parsers import get_parser
 
-# Initialize clients. In a real application, these might be managed more centrally.
+# --- CLIENT INITIALIZATION ---
+# These clients are initialized once when the module is imported.
 openai_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
 chroma_client = chromadb.HttpClient(host="chroma", port=8000)
+mongo_client = MongoClient(settings.MONGO_URL)
 
-# Ensure the collection exists. `get_or_create_collection` is idempotent.
+# Get ChromaDB collection
 vector_collection = chroma_client.get_or_create_collection(name="ingestiq_content")
 
+# Get MongoDB database and collection
+mongo_db = mongo_client["ingestiq_cache"]
+raw_content_collection = mongo_db["raw_content"]
 
 
 
-def process_file(file_path: str, client_id: str, file_id: str, job_id: str):
+
+# --- HELPER FUNCTIONS ---
+def calculate_file_hash(file_path: str) -> str:
+    """Calculates the SHA256 hash of a file's content."""
+    sha256_hash = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        # Read and update hash in chunks to handle large files
+        for byte_block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(byte_block)
+    return sha256_hash.hexdigest()
+
+
+def check_if_file_processed(db: Session, job_id: str, file_hash: str) -> bool:
+    """Checks if a file with the same hash has already been processed for this job."""
+    existing_file = db.query(IngestionFile).filter(
+        IngestionFile.job_id == job_id,
+        IngestionFile.file_hash == file_hash
+    ).first()
+    
+    if existing_file:
+        print(f"  [!] Idempotency check: File with hash {file_hash[:10]}... already processed for this job. Skipping.")
+        return True
+    return False
+
+
+# --- CORE PROCESSING LOGIC ---
+def process_file(file_path: str, client_id: str, file_id: str, job_id: str, db: Session):
     """
     The core logic for processing a single file.
-    Reads, chunks, embeds, and stores a file's content.
+    Orchestrates parsing, caching, chunking, embedding, and storage.
     """
-
     print(f"--- Starting processing for file: {file_path} ---")
 
     try:
-        # 1. Read Content (simple .txt reader for now)
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        print(f"  > Read {len(content)} characters from file.")
+        # 1. Idempotency Check
+        file_hash = calculate_file_hash(file_path)
+        if check_if_file_processed(db, job_id, file_hash):
+            # Update the file record with the hash
+            db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"file_hash": file_hash})
+            db.commit()
+            return # Skip the rest of the processing
 
-        # 2. Chunk Text (Content-Aware)
+        # 2. Parse Content using the factory
+        parser = get_parser(file_path)
+        content = parser.parse(file_path)
+        print(f"  > Parsed {len(content)} characters from file.")
+        
+        if not content.strip():
+            print("  > No content extracted. Skipping further processing.")
+            # Still update the hash even if no content
+            db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"file_hash": file_hash})
+            db.commit()
+            return
+
+        # Update file record with hash before proceeding
+        db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"file_hash": file_hash})
+        db.commit()
+
+        # 3. Cache Raw Content in MongoDB
+        mongo_db_document = {
+            "file_id": file_id,
+            "job_id": job_id,
+            "client_id": client_id,
+            "file_path": file_path,
+            "content": content,
+            "hash": file_hash,
+        }
+        raw_content_collection.replace_one({"file_id": file_id}, mongo_db_document, upsert=True)
+        print(f"  > Cached raw text content in MongoDB.")
+
+        # 4. Chunk Text
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200,
@@ -38,17 +105,16 @@ def process_file(file_path: str, client_id: str, file_id: str, job_id: str):
         print(f"  > Split content into {len(chunks)} chunks.")
 
         if not chunks:
-            print("  > No content to process. Skipping embedding and storage.")
             return
 
-        # 3. Generate Embeddings
+        # 5. Generate Embeddings
         response = openai_client.embeddings.create(
             input=chunks, model=settings.OPENAI_EMBEDDINGS_MODEL
         )
         embeddings = [item.embedding for item in response.data]
         print(f"  > Generated {len(embeddings)} embeddings from OpenAI.")
 
-        # 4. Prepare for Storage
+        # 6. Prepare for Vector Storage
         ids = [f"{file_id}_{i}" for i in range(len(chunks))]
         metadatas = [
             {
@@ -57,22 +123,17 @@ def process_file(file_path: str, client_id: str, file_id: str, job_id: str):
                 "file_id": file_id,
                 "job_id": job_id,
                 "chunk_number": i,
+                # Add more enhanced metadata here in the future
             }
             for i in range(len(chunks))
         ]
 
-        # 5. Store in ChromaDB
-        vector_collection.add(
-            ids=ids,
-            embeddings=embeddings,
-            documents=chunks,
-            metadatas=metadatas
-        )
+        # 7. Store in ChromaDB
+        vector_collection.add(ids=ids, embeddings=embeddings, documents=chunks, metadatas=metadatas)
         print(f"  > Successfully stored {len(chunks)} vectors in ChromaDB.")
         print(f"--- Finished processing for file: {file_path} ---")
 
     except Exception as e:
         print(f" [!] ERROR processing file {file_path}: {e}")
-        # Re-raise the exception so Airflow knows the task failed
+        # In Phase 4, we will log this error to the database instead of just raising it.
         raise
-
