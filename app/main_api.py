@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from api import ingestion # Import the new router
+from api import ingestion, query  # Import the routers
 from core.database import create_db_and_tables # Import the init function
 
 
@@ -28,3 +28,5 @@ async def health_check():
 
 # Include the ingestion router in our main app
 app.include_router(ingestion.router, prefix="/api/v1")
+# Include the new query router
+app.include_router(query.router, prefix="/api/v1")

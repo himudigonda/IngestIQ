@@ -22,3 +22,17 @@ class IngestionResponse(BaseModel):
     message: str = Field(..., description="A confirmation message.", example="Ingestion job created successfully.")
     status: str = Field(..., description="The initial status of the job.", example="PENDING")
     file_count: int = Field(..., description="The number of files accepted for ingestion.")
+
+
+# --- QUERY SCHEMAS (New) ---
+class QueryRequest(BaseModel):
+    client_id: str = Field(..., description="The client whose data should be queried.", example="client_abc")
+    query: str = Field(..., description="The user's question.", example="What is the policy on sick leave?")
+
+
+# We will not use a response model for the endpoint itself, as it will be a streaming response.
+# However, we can define a model for the source documents that will be cited.
+class SourceDocument(BaseModel):
+    file_path: str
+    metadata: dict[str, Any]
+    content: str

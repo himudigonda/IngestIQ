@@ -40,8 +40,8 @@ class IngestionFile(Base):
     file_path = Column(String, nullable=False)
     status = Column(Enum(StatusEnum), nullable=False, default=StatusEnum.PENDING)
     file_hash = Column(String, nullable=True, index=True)
-    # Note: We use 'file_metadata' as the attribute name because SQLAlchemy reserves 'metadata'
-    # The database column is still named 'metadata' 
+    # Note: SQLAlchemy reserves 'metadata' as an attribute name, so we use 'file_metadata'
+    # The database column is still named 'metadata'
     file_metadata = Column("metadata", JSONB, nullable=True)
 
     job = relationship("IngestionJob", back_populates="files")
