@@ -7,6 +7,9 @@ import os
 
 # Add the app directory to Python path so we can import our application code
 sys.path.insert(0, '/opt/airflow/app')
+# Add user site-packages where packages are installed (chromadb, etc.)
+import site
+site.addsitedir('/home/airflow/.local/lib/python3.12/site-packages')
 
 from airflow.models.dag import DAG
 from airflow.operators.python import PythonOperator
@@ -16,8 +19,8 @@ from sqlalchemy import create_engine, update
 from sqlalchemy.orm import sessionmaker, joinedload
 
 # Import our application code
-from app.core.models import IngestionJob, IngestionFile, StatusEnum, ProcessingError
-from app.ingestion.file_processor import process_file
+from core.models import IngestionJob, IngestionFile, StatusEnum, ProcessingError
+from ingestion.file_processor import process_file
 
 # We need to define how to get a DB session within the Airflow task context
 DATABASE_URL = "postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432/ingestiq_db"

@@ -63,7 +63,9 @@ services:
             apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
         WORKDIR /airflow
         COPY pyproject.toml ./
-        RUN uv pip install --system --no-cache .
+        # Install to user site-packages to avoid conflicts with Airflow's base packages
+        # Use regular pip since uv doesn't support --user flag
+        RUN pip install --user --no-cache-dir chromadb openai langchain-text-splitters pypdf python-docx pytesseract Pillow python-magic pymongo
         USER airflow
     container_name: ingestiq_airflow_webserver
     ports:
@@ -80,6 +82,7 @@ services:
       - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
       - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - PYTHONPATH=/home/airflow/.local/lib/python3.12/site-packages:/opt/airflow/app
     depends_on:
       - postgres
       - rabbitmq
@@ -99,7 +102,9 @@ services:
             apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
         WORKDIR /airflow
         COPY pyproject.toml ./
-        RUN uv pip install --system --no-cache .
+        # Install to user site-packages to avoid conflicts with Airflow's base packages
+        # Use regular pip since uv doesn't support --user flag
+        RUN pip install --user --no-cache-dir chromadb openai langchain-text-splitters pypdf python-docx pytesseract Pillow python-magic pymongo
         USER airflow
     container_name: ingestiq_airflow_scheduler
     volumes:
@@ -114,6 +119,7 @@ services:
       - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
       - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - PYTHONPATH=/home/airflow/.local/lib/python3.12/site-packages:/opt/airflow/app
     depends_on:
       - postgres
       - rabbitmq
@@ -135,8 +141,10 @@ services:
             apt-get purge -y curl && apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
         WORKDIR /airflow
         COPY pyproject.toml ./
-        RUN uv pip install --system --no-cache .
+        COPY install-deps.sh /usr/local/bin/
+        RUN chmod +x /usr/local/bin/install-deps.sh
         USER airflow
+        RUN /usr/local/bin/install-deps.sh
     container_name: ingestiq_airflow_worker
     volumes:
       - ./airflow/dags:/opt/airflow/dags
@@ -151,6 +159,7 @@ services:
       - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
       - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - PYTHONPATH=/home/airflow/.local/lib/python3.12/site-packages:/opt/airflow/app
     depends_on:
       - airflow-scheduler
       - chroma
@@ -170,7 +179,9 @@ services:
             apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
         WORKDIR /airflow
         COPY pyproject.toml ./
-        RUN uv pip install --system --no-cache .
+        # Install to user site-packages to avoid conflicts with Airflow's base packages
+        # Use regular pip since uv doesn't support --user flag
+        RUN pip install --user --no-cache-dir chromadb openai langchain-text-splitters pypdf python-docx pytesseract Pillow python-magic pymongo
         USER airflow
     container_name: ingestiq_airflow_init
     volumes:
@@ -185,6 +196,7 @@ services:
       - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
       - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - PYTHONPATH=/home/airflow/.local/lib/python3.12/site-packages:/opt/airflow/app
     depends_on:
       - postgres
       - rabbitmq
