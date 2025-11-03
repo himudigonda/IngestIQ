@@ -1,0 +1,14 @@
+# These packages are needed by the Airflow workers to execute our processing tasks.
+apache-airflow-providers-postgres
+apache-airflow-providers-rabbitmq
+
+# Application-specific dependencies
+openai
+langchain-text-splitters
+chromadb
+sqlalchemy
+psycopg2-binary
+pydantic-settings
+python-dotenv
+tenacity
+

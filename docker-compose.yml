@@ -6,7 +6,7 @@ services:
       dockerfile: Dockerfile
     container_name: ingestiq_api
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       - ./app:/app
     env_file: .env
@@ -49,7 +49,12 @@ services:
   # 5. Airflow Services
   # We use the official Airflow docker-compose setup as a template
   airflow-webserver:
-    image: apache/airflow:2.9.2
+    build:
+      context: ./airflow
+      dockerfile_inline: |
+        FROM apache/airflow:2.9.2
+        COPY requirements.txt /
+        RUN pip install --no-cache-dir -r /requirements.txt
     container_name: ingestiq_airflow_webserver
     ports:
       - "8080:8080"
@@ -57,6 +62,7 @@ services:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./airflow/plugins:/opt/airflow/plugins
+      - ./app:/opt/airflow/app
     env_file: .env
     environment:
       - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
@@ -66,15 +72,22 @@ services:
     depends_on:
       - postgres
       - rabbitmq
+      - chroma
     command: webserver
 
   airflow-scheduler:
-    image: apache/airflow:2.9.2
+    build:
+      context: ./airflow
+      dockerfile_inline: |
+        FROM apache/airflow:2.9.2
+        COPY requirements.txt /
+        RUN pip install --no-cache-dir -r /requirements.txt
     container_name: ingestiq_airflow_scheduler
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./airflow/plugins:/opt/airflow/plugins
+      - ./app:/opt/airflow/app
     env_file: .env
     environment:
       - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
@@ -84,15 +97,23 @@ services:
     depends_on:
       - postgres
       - rabbitmq
+      - chroma
     command: scheduler
 
   airflow-worker:
-    image: apache/airflow:2.9.2
+    build:
+      context: ./airflow
+      dockerfile_inline: |
+        FROM apache/airflow:2.9.2
+        COPY requirements.txt /
+        RUN pip install --no-cache-dir -r /requirements.txt
     container_name: ingestiq_airflow_worker
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./airflow/plugins:/opt/airflow/plugins
+      - ./app:/opt/airflow/app
+      - ./local_data:/opt/airflow/local_data
     env_file: .env
     environment:
       - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
@@ -101,16 +122,23 @@ services:
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
     depends_on:
       - airflow-scheduler
+      - chroma
     command: celery worker
 
   # This service runs once to initialize the Airflow database
   airflow-init:
-    image: apache/airflow:2.9.2
+    build:
+      context: ./airflow
+      dockerfile_inline: |
+        FROM apache/airflow:2.9.2
+        COPY requirements.txt /
+        RUN pip install --no-cache-dir -r /requirements.txt
     container_name: ingestiq_airflow_init
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./airflow/plugins:/opt/airflow/plugins
+      - ./app:/opt/airflow/app
     env_file: .env
     environment:
       - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
@@ -125,6 +153,15 @@ services:
         airflow db init &&
         airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin
       "
+
+  # 6. ChromaDB for Vector Storage
+  chroma:
+    image: chromadb/chroma:0.5.0
+    container_name: ingestiq_chroma
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./local_data/chroma_data:/chroma/.chroma/index
 
 volumes:
   postgres_data:
