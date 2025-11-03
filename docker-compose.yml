@@ -76,6 +76,7 @@ services:
     env_file: .env
     environment:
       - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
       - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
@@ -109,6 +110,7 @@ services:
     env_file: .env
     environment:
       - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
       - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
@@ -145,6 +147,7 @@ services:
     env_file: .env
     environment:
       - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
       - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
@@ -178,6 +181,7 @@ services:
     env_file: .env
     environment:
       - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
       - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False

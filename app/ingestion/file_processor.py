@@ -64,17 +64,20 @@ def process_file(file_info: dict, db: Session):
         db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"status": StatusEnum.PROCESSING})
         db.commit()
 
-        # 2. Idempotency Check
+        # 2. Idempotency Check (CORRECTED LOGIC)
         file_hash = calculate_file_hash(file_path)
         try:
+            # Atomically update the file record with the hash.
             db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"file_hash": file_hash})
             db.commit()
         except IntegrityError:
-            db.rollback()
-            print(f"  [!] Idempotency check: A different file with this hash already exists for this job. Skipping.")
+            # This error means the (job_id, file_hash) constraint was violated.
+            db.rollback() # Rollback the failed transaction
+            print(f"  [!] Idempotency check: File with hash {file_hash[:10]}... already processed for this job. Skipping.")
+            # Mark this specific file instance as FAILED because it's a duplicate
             db.query(IngestionFile).filter(IngestionFile.id == file_id).update({"status": StatusEnum.FAILED})
             db.commit()
-            return
+            return # Stop processing this file
 
         # 3. Parse, Cache, Chunk, Embed, Store...
         parser = get_parser(file_path)
