@@ -1,5 +1,5 @@
 services:
-  # 1. Our FastAPI Application
+  # 1. Our FastAPI Application (No changes here)
   api:
     build:
       context: .
@@ -18,7 +18,7 @@ services:
       - rabbitmq
     command: sh -c "cd /app && python -m uvicorn main_api:app --host 0.0.0.0 --port 8000"
 
-  # 2. PostgreSQL for Metadata & State
+  # 2. PostgreSQL for Metadata & State (No changes here)
   postgres:
     image: postgres:16-alpine
     container_name: ingestiq_postgres
@@ -28,7 +28,7 @@ services:
       - ./local_data/postgres_data:/var/lib/postgresql/data
     env_file: .env
 
-  # 3. MongoDB for Raw Text Caching
+  # 3. MongoDB for Raw Text Caching (No changes here)
   mongo:
     image: mongo:latest
     container_name: ingestiq_mongo
@@ -38,39 +38,37 @@ services:
       - ./local_data/mongo_data:/data/db
     env_file: .env
 
-  # 4. RabbitMQ for Messaging
+  # 4. RabbitMQ for Messaging (No changes here)
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: ingestiq_rabbitmq
     ports:
-      - "5672:5672"   # For application connection
-      - "15672:15672" # For web management UI
-
+      - "5672:5672"
+      - "15672:15672"
     env_file: .env
 
-  # 5. Airflow Services
-  # We use the official Airflow docker-compose setup as a template
+  # 5. ChromaDB for Vector Storage (No changes here)
+  chroma:
+    image: chromadb/chroma:0.5.0
+    container_name: ingestiq_chroma
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./local_data/chroma_data:/chroma/.chroma/index
+
+  # --- SIMPLIFIED AND CORRECTED AIRFLOW SERVICES ---
+
   airflow-webserver:
     build:
-      context: ./airflow
-      dockerfile_inline: |
-        FROM apache/airflow:2.9.2
-        USER root
-        # Create a directory for our custom packages and give the airflow user ownership
-        RUN mkdir -p /opt/airflow/custom_packages && chown -R airflow:root /opt/airflow/custom_packages
-        USER airflow
-        # Install our dependencies with all sub-dependencies to the custom location
-        RUN pip install --target /opt/airflow/custom_packages --no-cache-dir \
-            chromadb openai langchain-text-splitters pypdf python-docx \
-            pytesseract Pillow python-magic pymongo pika pydantic-settings python-dotenv
+      context: . # Build context is the project root
+      dockerfile: airflow/Dockerfile # Use our new, unified Dockerfile
     container_name: ingestiq_airflow_webserver
     ports:
       - "8080:8080"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
-      - ./airflow/plugins:/opt/airflow/plugins
-      - ./app:/opt/airflow/app
+      - ./app:/opt/airflow/app # Mount our app code
     env_file: .env
     environment:
       - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
@@ -78,7 +76,8 @@ services:
       - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
       - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - PYTHONPATH=/opt/airflow/custom_packages:/opt/airflow/app
+      - AIRFLOW__WEBSERVER__SECRET_KEY=a_super_secret_key_for_webserver_sessions # Add a static secret key
+      - PYTHONPATH=/opt/airflow/app # Simplified PYTHONPATH
     depends_on:
       - postgres
       - rabbitmq
@@ -87,22 +86,12 @@ services:
 
   airflow-scheduler:
     build:
-      context: ./airflow
-      dockerfile_inline: |
-        FROM apache/airflow:2.9.2
-        USER root
-        # Create a directory for our custom packages and give the airflow user ownership
-        RUN mkdir -p /opt/airflow/custom_packages && chown -R airflow:root /opt/airflow/custom_packages
-        USER airflow
-        # Install our dependencies with all sub-dependencies to the custom location
-        RUN pip install --target /opt/airflow/custom_packages --no-cache-dir \
-            chromadb openai langchain-text-splitters pypdf python-docx \
-            pytesseract Pillow python-magic pymongo pika pydantic-settings python-dotenv
+      context: .
+      dockerfile: airflow/Dockerfile
     container_name: ingestiq_airflow_scheduler
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
-      - ./airflow/plugins:/opt/airflow/plugins
       - ./app:/opt/airflow/app
     env_file: .env
     environment:
@@ -111,7 +100,7 @@ services:
       - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
       - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - PYTHONPATH=/opt/airflow/custom_packages:/opt/airflow/app
+      - PYTHONPATH=/opt/airflow/app
     depends_on:
       - postgres
       - rabbitmq
@@ -120,31 +109,14 @@ services:
 
   airflow-worker:
     build:
-      context: ./airflow
-      dockerfile_inline: |
-        FROM apache/airflow:2.9.2
-        USER root
-        # Install Tesseract for OCR, only in the worker
-        # The _AIRFLOW_COMMAND env var is automatically set by the entrypoint
-        RUN if [ "$_AIRFLOW_COMMAND" = "worker" ]; then \
-              apt-get update && \
-              apt-get install -y --no-install-recommends tesseract-ocr && \
-              apt-get clean && rm -rf /var/lib/apt/lists/*; \
-            fi
-        # Create a directory for our custom packages and give the airflow user ownership
-        RUN mkdir -p /opt/airflow/custom_packages && chown -R airflow:root /opt/airflow/custom_packages
-        USER airflow
-        # Install our dependencies with all sub-dependencies to the custom location
-        RUN pip install --target /opt/airflow/custom_packages --no-cache-dir \
-            chromadb openai langchain-text-splitters pypdf python-docx \
-            pytesseract Pillow python-magic pymongo pika pydantic-settings python-dotenv
+      context: .
+      dockerfile: airflow/Dockerfile
     container_name: ingestiq_airflow_worker
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
-      - ./airflow/plugins:/opt/airflow/plugins
       - ./app:/opt/airflow/app
-      - ./local_data:/opt/airflow/local_data
+      - ./local_data:/opt/airflow/local_data # This is CRITICAL for accessing files
     env_file: .env
     environment:
       - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
@@ -152,32 +124,19 @@ services:
       - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
       - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - PYTHONPATH=/opt/airflow/custom_packages:/opt/airflow/app
+      - PYTHONPATH=/opt/airflow/app
     depends_on:
       - airflow-scheduler
       - chroma
-    command: celery worker
+    # THIS IS THE FIX FOR THE CRASH: We explicitly name the worker node.
+    command: celery worker --hostname=worker@%h
 
   # This service runs once to initialize the Airflow database
   airflow-init:
     build:
-      context: ./airflow
-      dockerfile_inline: |
-        FROM apache/airflow:2.9.2
-        USER root
-        # Create a directory for our custom packages and give the airflow user ownership
-        RUN mkdir -p /opt/airflow/custom_packages && chown -R airflow:root /opt/airflow/custom_packages
-        USER airflow
-        # Install our dependencies with all sub-dependencies to the custom location
-        RUN pip install --target /opt/airflow/custom_packages --no-cache-dir \
-            chromadb openai langchain-text-splitters pypdf python-docx \
-            pytesseract Pillow python-magic pymongo pika pydantic-settings python-dotenv
+      context: .
+      dockerfile: airflow/Dockerfile
     container_name: ingestiq_airflow_init
-    volumes:
-      - ./airflow/dags:/opt/airflow/dags
-      - ./airflow/logs:/opt/airflow/logs
-      - ./airflow/plugins:/opt/airflow/plugins
-      - ./app:/opt/airflow/app
     env_file: .env
     environment:
       - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
@@ -185,7 +144,7 @@ services:
       - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
       - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - PYTHONPATH=/opt/airflow/custom_packages:/opt/airflow/app
+      - PYTHONPATH=/opt/airflow/app
     depends_on:
       - postgres
       - rabbitmq
@@ -195,16 +154,6 @@ services:
         airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin
       "
 
-  # 6. ChromaDB for Vector Storage
-  chroma:
-    image: chromadb/chroma:0.5.0
-    container_name: ingestiq_chroma
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./local_data/chroma_data:/chroma/.chroma/index
-
 volumes:
   postgres_data:
   mongo_data:
-

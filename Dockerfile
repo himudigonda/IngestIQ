@@ -11,6 +11,7 @@ RUN python3 -m venv /opt/venv
 # Copy dependency files
 WORKDIR /app
 COPY pyproject.toml ./
+COPY ./app ./app
 
 # Install dependencies into the virtual environment using uv
 # This ensures all packages, including native extensions, are compiled here.

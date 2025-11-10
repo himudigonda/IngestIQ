@@ -39,3 +39,6 @@ dev = [
     "httpx", # For testing FastAPI endpoints
 ]
 
+[tool.setuptools.packages.find]
+exclude = ["dags*", "logs*"]
+
