@@ -58,3 +58,4 @@ htmlcov/
 
 dumper.sh
 uv.lock
+to_run.md

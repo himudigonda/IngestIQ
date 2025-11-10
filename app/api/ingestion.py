@@ -13,8 +13,23 @@ router = APIRouter()
 
 def publish_to_rabbitmq(job_id: str):
     """Publishes a job ID to the ingestion queue."""
-    print(f" [x] Job '{job_id}' is ready. An external trigger (like the Airflow sensor) should now pick this up.")
-    # In a real system, you would have the full pika logic here. We are simulating it.
+    try:
+        connection = pika.BlockingConnection(pika.URLParameters(settings.RABBITMQ_URL))
+        channel = connection.channel()
+        queue_name = "ingestion_queue"
+        channel.queue_declare(queue=queue_name, durable=True)
+        message = json.dumps({"job_id": job_id})
+        channel.basic_publish(
+            exchange="",
+            routing_key=queue_name,
+            body=message,
+            properties=pika.BasicProperties(delivery_mode=2),  # Make message persistent
+        )
+        connection.close()
+        print(f" [x] Sent job '{job_id}' to RabbitMQ")
+    except Exception as e:
+        print(f" [!] Failed to publish to RabbitMQ: {e}")
+        # Don't fail the entire request if RabbitMQ is down
 
 
 

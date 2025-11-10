@@ -56,17 +56,13 @@ services:
       dockerfile_inline: |
         FROM apache/airflow:2.9.2
         USER root
-        RUN apt-get update && apt-get install -y --no-install-recommends curl && \
-            curl -LsSf https://astral.sh/uv/install.sh | sh && \
-            mv /root/.local/bin/uv /usr/local/bin/uv && \
-            rm -rf /root/.local && \
-            apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
-        WORKDIR /airflow
-        COPY pyproject.toml ./
-        COPY install-deps.sh /usr/local/bin/
-        RUN chmod +x /usr/local/bin/install-deps.sh
+        # Create a directory for our custom packages and give the airflow user ownership
+        RUN mkdir -p /opt/airflow/custom_packages && chown -R airflow:root /opt/airflow/custom_packages
         USER airflow
-        RUN /usr/local/bin/install-deps.sh
+        # Install our dependencies with all sub-dependencies to the custom location
+        RUN pip install --target /opt/airflow/custom_packages --no-cache-dir \
+            chromadb openai langchain-text-splitters pypdf python-docx \
+            pytesseract Pillow python-magic pymongo pika pydantic-settings python-dotenv
     container_name: ingestiq_airflow_webserver
     ports:
       - "8080:8080"
@@ -95,17 +91,13 @@ services:
       dockerfile_inline: |
         FROM apache/airflow:2.9.2
         USER root
-        RUN apt-get update && apt-get install -y --no-install-recommends curl && \
-            curl -LsSf https://astral.sh/uv/install.sh | sh && \
-            mv /root/.local/bin/uv /usr/local/bin/uv && \
-            rm -rf /root/.local && \
-            apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
-        WORKDIR /airflow
-        COPY pyproject.toml ./
-        COPY install-deps.sh /usr/local/bin/
-        RUN chmod +x /usr/local/bin/install-deps.sh
+        # Create a directory for our custom packages and give the airflow user ownership
+        RUN mkdir -p /opt/airflow/custom_packages && chown -R airflow:root /opt/airflow/custom_packages
         USER airflow
-        RUN /usr/local/bin/install-deps.sh
+        # Install our dependencies with all sub-dependencies to the custom location
+        RUN pip install --target /opt/airflow/custom_packages --no-cache-dir \
+            chromadb openai langchain-text-splitters pypdf python-docx \
+            pytesseract Pillow python-magic pymongo pika pydantic-settings python-dotenv
     container_name: ingestiq_airflow_scheduler
     volumes:
       - ./airflow/dags:/opt/airflow/dags
@@ -132,19 +124,20 @@ services:
       dockerfile_inline: |
         FROM apache/airflow:2.9.2
         USER root
-        RUN apt-get update && apt-get install -y --no-install-recommends \
-            tesseract-ocr \
-            curl \
-            && curl -LsSf https://astral.sh/uv/install.sh | sh && \
-            mv /root/.local/bin/uv /usr/local/bin/uv && \
-            rm -rf /root/.local && \
-            apt-get purge -y curl && apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
-        WORKDIR /airflow
-        COPY pyproject.toml ./
-        COPY install-deps.sh /usr/local/bin/
-        RUN chmod +x /usr/local/bin/install-deps.sh
+        # Install Tesseract for OCR, only in the worker
+        # The _AIRFLOW_COMMAND env var is automatically set by the entrypoint
+        RUN if [ "$_AIRFLOW_COMMAND" = "worker" ]; then \
+              apt-get update && \
+              apt-get install -y --no-install-recommends tesseract-ocr && \
+              apt-get clean && rm -rf /var/lib/apt/lists/*; \
+            fi
+        # Create a directory for our custom packages and give the airflow user ownership
+        RUN mkdir -p /opt/airflow/custom_packages && chown -R airflow:root /opt/airflow/custom_packages
         USER airflow
-        RUN /usr/local/bin/install-deps.sh
+        # Install our dependencies with all sub-dependencies to the custom location
+        RUN pip install --target /opt/airflow/custom_packages --no-cache-dir \
+            chromadb openai langchain-text-splitters pypdf python-docx \
+            pytesseract Pillow python-magic pymongo pika pydantic-settings python-dotenv
     container_name: ingestiq_airflow_worker
     volumes:
       - ./airflow/dags:/opt/airflow/dags
@@ -172,17 +165,13 @@ services:
       dockerfile_inline: |
         FROM apache/airflow:2.9.2
         USER root
-        RUN apt-get update && apt-get install -y --no-install-recommends curl && \
-            curl -LsSf https://astral.sh/uv/install.sh | sh && \
-            mv /root/.local/bin/uv /usr/local/bin/uv && \
-            rm -rf /root/.local && \
-            apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
-        WORKDIR /airflow
-        COPY pyproject.toml ./
-        COPY install-deps.sh /usr/local/bin/
-        RUN chmod +x /usr/local/bin/install-deps.sh
+        # Create a directory for our custom packages and give the airflow user ownership
+        RUN mkdir -p /opt/airflow/custom_packages && chown -R airflow:root /opt/airflow/custom_packages
         USER airflow
-        RUN /usr/local/bin/install-deps.sh
+        # Install our dependencies with all sub-dependencies to the custom location
+        RUN pip install --target /opt/airflow/custom_packages --no-cache-dir \
+            chromadb openai langchain-text-splitters pypdf python-docx \
+            pytesseract Pillow python-magic pymongo pika pydantic-settings python-dotenv
     container_name: ingestiq_airflow_init
     volumes:
       - ./airflow/dags:/opt/airflow/dags

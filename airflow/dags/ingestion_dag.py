@@ -2,33 +2,67 @@ from __future__ import annotations
 
 import pendulum
 import json
-import sys
 import os
-
-# Add the app directory to Python path so we can import our application code
-sys.path.insert(0, '/opt/airflow/app')
-# Add custom packages directory at the END of path to avoid overriding Airflow's packages
-sys.path.append('/opt/airflow/custom_packages')
-
-from airflow.models.dag import DAG
-from airflow.operators.python import PythonOperator
-from airflow.decorators import task
-from airflow.models.param import Param
+import pika
 from sqlalchemy import create_engine, update
 from sqlalchemy.orm import sessionmaker, joinedload
 
+from airflow.models.dag import DAG
+from airflow.decorators import task
+from airflow.sensors.python import PythonSensor
+
 # Import our application code
-from core.models import IngestionJob, IngestionFile, StatusEnum, ProcessingError
+from core.models import IngestionJob, StatusEnum, ProcessingError
 from ingestion.file_processor import process_file
 
-# We need to define how to get a DB session within the Airflow task context
+
+# --- DATABASE & MESSAGE QUEUE SETUP ---
 DATABASE_URL = "postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432/ingestiq_db"
+RABBITMQ_URL = "amqp://ingestiq:supersecretpassword@rabbitmq:5672/"
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def get_db_session():
     return SessionLocal()
+
+
+# --- AIRFLOW TASK CALLABLES ---
+def check_for_job_message(**context):
+    """
+    Called by the PythonSensor. It checks RabbitMQ for a message.
+    If a message is found, it pushes the job_id to XComs and returns True.
+    """
+    try:
+        connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
+        channel = connection.channel()
+        method_frame, header_frame, body = channel.basic_get(queue="ingestion_queue")
+        if method_frame:
+            channel.basic_ack(method_frame.delivery_tag)
+            connection.close()
+            job_id = json.loads(body.decode('utf-8'))['job_id']
+            context['ti'].xcom_push(key='job_id', value=job_id)
+            print(f" [x] Received job_id '{job_id}' from RabbitMQ.")
+            return True
+    except pika.exceptions.AMQPConnectionError:
+        print(" [!] Could not connect to RabbitMQ. Will retry.")
+    except Exception as e:
+        print(f" [!] An error occurred in the sensor: {e}")
+    return False
+
+
+@task
+def set_job_to_processing(ti=None):
+    job_id = ti.xcom_pull(task_ids='check_for_new_job', key='job_id')
+    db = get_db_session()
+    try:
+        stmt = update(IngestionJob).where(IngestionJob.id == job_id).values(status=StatusEnum.PROCESSING)
+        db.execute(stmt)
+        db.commit()
+        print(f"Job {job_id} status updated to PROCESSING.")
+        return job_id
+    finally:
+        db.close()
 
 
 @task
@@ -71,20 +105,6 @@ def process_single_file_task(file_info: dict):
         db.close()
 
 
-def set_job_status_as_processing(**context):
-    """Update the job status in Postgres to PROCESSING."""
-    job_id = context["params"]["job_id"]
-    
-    db = get_db_session()
-    try:
-        stmt = update(IngestionJob).where(IngestionJob.id == job_id).values(status=StatusEnum.PROCESSING)
-        db.execute(stmt)
-        db.commit()
-        print(f"Job {job_id} status updated to PROCESSING.")
-    finally:
-        db.close()
-
-
 @task
 def finalize_job_status(job_id: str):
     """
@@ -106,30 +126,36 @@ def finalize_job_status(job_id: str):
         db.close()
 
 
+# --- DAG DEFINITION ---
 with DAG(
     dag_id="ingestion_pipeline",
     start_date=pendulum.datetime(2024, 1, 1, tz="UTC"),
     catchup=False,
     schedule=None,
     tags=["ingestion", "rag"],
-    params={"job_id": Param(type="string", default="")},
 ) as dag:
     
-    # Task 0: Set job status to PROCESSING
-    set_status_processing = PythonOperator(
-        task_id="set_job_status_as_processing",
-        python_callable=set_job_status_as_processing,
+    # Task 1: Wait for a message and get the job_id
+    check_for_new_job = PythonSensor(
+        task_id="check_for_new_job",
+        python_callable=check_for_job_message,
+        poke_interval=5,
+        timeout=300,
+        mode="poke",
     )
-
-    # Task 1: Fetch the list of files to process
-    files_to_process_list = get_files_for_job(job_id="{{ params.job_id }}")
-
-    # Task 2: Dynamically map a task for each file
-    # This will "fan-out" and run in parallel
-    processing_tasks = process_single_file_task.expand(file_info=files_to_process_list)
-
-    # Task 3: "Fan-in" and finalize the job status after all files are processed
-    final_status = finalize_job_status(job_id="{{ params.job_id }}")
     
-    # Define dependencies
-    set_status_processing >> files_to_process_list >> processing_tasks >> final_status
+    # Task 2: Set the job's status to PROCESSING
+    job_id = set_job_to_processing()
+
+    # Task 3: Get the list of files for that job
+    files_list = get_files_for_job(job_id)
+
+    # Task 4 (Fan-Out): Process each file in parallel
+    processing = process_single_file_task.expand(file_info=files_list)
+
+    # Task 5 (Fan-In): Finalize the job status after all files are done
+    finalize = finalize_job_status(job_id)
+
+    # Define the dependency chain
+    check_for_new_job >> job_id
+    job_id >> files_list >> processing >> finalize
