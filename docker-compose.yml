@@ -14,7 +14,6 @@ services:
       - PYTHONPATH=/app
     depends_on:
       - postgres
-      - mongo
       - rabbitmq
     command: sh -c "cd /app && python -m uvicorn main_api:app --host 0.0.0.0 --port 8000"
 
@@ -26,16 +25,6 @@ services:
       - "5432:5432"
     volumes:
       - ./local_data/postgres_data:/var/lib/postgresql/data
-    env_file: .env
-
-  # 3. MongoDB for Raw Text Caching (No changes here)
-  mongo:
-    image: mongo:latest
-    container_name: ingestiq_mongo
-    ports:
-      - "27017:27017"
-    volumes:
-      - ./local_data/mongo_data:/data/db
     env_file: .env
 
   # 4. RabbitMQ for Messaging (No changes here)
@@ -128,8 +117,7 @@ services:
     depends_on:
       - airflow-scheduler
       - chroma
-    # THIS IS THE FIX FOR THE CRASH: We explicitly name the worker node.
-    command: celery worker --hostname=worker@%h
+    command: celery worker
 
   # This service runs once to initialize the Airflow database
   airflow-init:
@@ -156,4 +144,3 @@ services:
 
 volumes:
   postgres_data:
-  mongo_data:

@@ -1,11 +1,23 @@
-import uuid
 import enum
+import uuid
 from datetime import datetime
-from sqlalchemy import create_engine, Column, String, DateTime, ForeignKey, Enum, UniqueConstraint, Text
-from sqlalchemy.orm import relationship, sessionmaker, declarative_base
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 
-Base = declarative_base()
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Enum,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    create_engine,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 class StatusEnum(enum.Enum):
@@ -31,9 +43,7 @@ class IngestionJob(Base):
 
 class IngestionFile(Base):
     __tablename__ = "ingestion_files"
-    __table_args__ = (
-        UniqueConstraint('job_id', 'file_hash', name='_job_hash_uc'),
-    )
+    __table_args__ = (UniqueConstraint("job_id", "file_hash", name="_job_hash_uc"),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     job_id = Column(UUID(as_uuid=True), ForeignKey("ingestion_jobs.id"), nullable=False)
@@ -53,10 +63,11 @@ class ProcessingError(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     job_id = Column(UUID(as_uuid=True), ForeignKey("ingestion_jobs.id"), nullable=False)
-    file_id = Column(UUID(as_uuid=True), ForeignKey("ingestion_files.id"), nullable=False)
+    file_id = Column(
+        UUID(as_uuid=True), ForeignKey("ingestion_files.id"), nullable=False
+    )
     error_message = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     job = relationship("IngestionJob", back_populates="errors")
     file = relationship("IngestionFile", back_populates="error")
-

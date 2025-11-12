@@ -1,29 +1,38 @@
-# Use the official Airflow image as our base
-FROM apache/airflow:2.9.2
+# Use the official Airflow image as our base, specifying Python 3.11
+FROM apache/airflow:2.9.2-python3.11
 
 # Switch to the root user to install system-level dependencies
 USER root
 
-# Install Tesseract for OCR, which is needed by the worker for image parsing.
+# Install Tesseract for OCR, build tools, and other libraries needed by our Python packages.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends tesseract-ocr && \
+    apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    build-essential \
+    libpq-dev \
+    libjpeg-dev \
+    zlib1g-dev \
+    libmagic1 && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Copy the project's dependency definition file
-COPY pyproject.toml ./pyproject.toml
-
-# THIS IS THE CORRECTED FIX: Assign ownership to the 'airflow' user and 'root' group.
-RUN chown airflow:root /opt/airflow/pyproject.toml
-
-# Switch back to the non-root airflow user for security
+# Switch back to the non-root airflow user
 USER airflow
 
-# Install 'uv', our fast package manager
-RUN pip install uv
-
-# Switch to root to install packages, then back to airflow
-USER root
-# Use uv to install all dependencies from pyproject.toml into the main Python environment.
-# This will now work because pyproject.toml explicitly defines the package location.
-RUN uv pip install --system --no-cache .
-USER airflow
+# Install all project dependencies directly into the main Python environment.
+# This ensures they are available to the DAG parser and the worker.
+RUN pip install --no-cache-dir \
+    "SQLAlchemy==2.0.30" \
+    "pika>=1.3.2" \
+    "psycopg2-binary>=2.9.9" \
+    "pymongo>=4.7.3" \
+    "chromadb>=0.5.0" \
+    "openai>=1.35.3" \
+    "langchain-text-splitters>=0.2.0" \
+    "pypdf>=4.2.0" \
+    "pytesseract>=0.3.10" \
+    "Pillow>=10.3.0" \
+    "python-magic>=0.4.27" \
+    "python-docx>=1.1.2" \
+    "pydantic-settings>=2.3.4" \
+    "python-dotenv>=1.0.1" \
+    "tenacity>=8.4.1"

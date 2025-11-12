@@ -40,28 +40,28 @@ clean_data() {
         error "Data cleanup cancelled by user."
         exit 1
     fi
-    docker-compose down --volumes
+    docker compose down --volumes
     log_success "All services stopped and data volumes removed."
 }
 
 run_checks() {
     log_action "Running quality checks inside the 'api' container..."
     log "Step 1: Checking code formatting with black..."
-    if ! docker-compose run --rm api black --check .; then
+    if ! docker compose run --rm api black --check .; then
         error "Code formatting check failed. Run './run.sh format' to fix."
         exit 1
     fi
     log_success "Formatting is correct."
 
     log "Step 2: Running linting with ruff..."
-    if ! docker-compose run --rm api ruff check .; then
+    if ! docker compose run --rm api ruff check .; then
         error "Linting failed. Run './run.sh lint' to fix."
         exit 1
     fi
     log_success "Linting passed."
 
     log "Step 3: Running test suite with pytest..."
-    if ! docker-compose run --rm api pytest; then
+    if ! docker compose run --rm api pytest; then
         error "Tests failed."
         exit 1
     fi
@@ -93,19 +93,19 @@ main() {
     case "$command" in
     up)
         log_action "Building and starting all IngestIQ services..."
-        docker-compose up --build -d
+        docker compose up --build -d
         log_success "All services are starting. Use './run.sh logs' to monitor."
         ;;
 
     down)
         log_action "Stopping all IngestIQ services..."
-        docker-compose down
+        docker compose down
         log_success "Services stopped."
         ;;
 
     logs)
         log_action "Following logs for 'api' and 'airflow-worker'. Press Ctrl+C to exit."
-        docker-compose logs -f api airflow-worker
+        docker compose logs -f api airflow-worker
         ;;
 
     test)
@@ -114,13 +114,13 @@ main() {
 
     format)
         log_action "Auto-formatting code with black..."
-        docker-compose run --rm api black .
+        docker compose run --rm api black .
         log_success "Formatting complete."
         ;;
 
     lint)
         log_action "Auto-linting and fixing code with ruff..."
-        docker-compose run --rm api ruff check . --fix
+        docker compose run --rm api ruff check . --fix
         log_success "Linting complete."
         ;;
 
