@@ -122,8 +122,9 @@ async def query_endpoint(request: schemas.QueryRequest):
 
             # Yield each chunk of the answer as it arrives
             for chunk in stream:
-                content = chunk.choices[0].delta.content
-                if content:
+                # Add a check to ensure the chunk has content before processing
+                if chunk.choices and chunk.choices[0].delta.content is not None:
+                    content = chunk.choices[0].delta.content
                     yield content
 
             # After the answer, yield the sources for clarity
