@@ -89,6 +89,7 @@ services:
       - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
       - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__WEBSERVER__SECRET_KEY=a_super_secret_key_for_webserver_sessions
       - PYTHONPATH=/opt/airflow/app
     depends_on:
       - postgres
@@ -113,6 +114,7 @@ services:
       - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
       - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__WEBSERVER__SECRET_KEY=a_super_secret_key_for_webserver_sessions
       - PYTHONPATH=/opt/airflow/app
     depends_on:
       - airflow-scheduler

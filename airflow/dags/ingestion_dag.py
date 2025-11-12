@@ -36,6 +36,9 @@ def check_for_job_message(**context):
     try:
         connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
         channel = connection.channel()
+        # Ensure the queue exists before trying to consume from it.
+        # This is an idempotent operation.
+        channel.queue_declare(queue="ingestion_queue", durable=True)
         method_frame, header_frame, body = channel.basic_get(queue="ingestion_queue")
         if method_frame:
             channel.basic_ack(method_frame.delivery_tag)

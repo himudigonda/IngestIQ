@@ -10,11 +10,18 @@ router = APIRouter()
 # --- CLIENT INITIALIZATION ---
 # Initialize clients when the module is loaded.
 try:
-    # Initialize OpenAI client with optional custom endpoint
-    openai_kwargs = {"api_key": settings.OPENAI_API_KEY}
     if settings.OPENAI_ENDPOINT:
-        openai_kwargs["base_url"] = settings.OPENAI_ENDPOINT
-    openai_client = openai.OpenAI(**openai_kwargs)
+        # Use the Azure client if an endpoint is set
+        from openai import AzureOpenAI
+
+        openai_client = AzureOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            api_version=settings.OPENAI_API_VERSION,
+            azure_endpoint=settings.OPENAI_ENDPOINT,
+        )
+    else:
+        # Use the standard client otherwise
+        openai_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
 
     # Initialize ChromaDB client
     chroma_client = chromadb.HttpClient(host="chroma", port=8000)
