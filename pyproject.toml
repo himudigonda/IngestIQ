@@ -16,7 +16,8 @@ dependencies = [
     "sqlalchemy>=2.0.27,<2.1",
     "psycopg2-binary>=2.9.9",  # Postgres driver
     "pymongo>=4.7.3",          # MongoDB driver
-    "chromadb>=0.5.0",
+    "chromadb==0.5.0",
+    "numpy<2.0",               # Pin numpy to be compatible with chromadb
 
     # AI & Document Processing
     "openai>=1.35.3",
