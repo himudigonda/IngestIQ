@@ -1,10 +1,9 @@
-import openai
 import chromadb
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
-
+import openai
 from core import schemas
 from core.config import settings
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 router = APIRouter()
 
@@ -16,10 +15,10 @@ try:
     if settings.OPENAI_ENDPOINT:
         openai_kwargs["base_url"] = settings.OPENAI_ENDPOINT
     openai_client = openai.OpenAI(**openai_kwargs)
-    
+
     # Initialize ChromaDB client
     chroma_client = chromadb.HttpClient(host="chroma", port=8000)
-    vector_collection = chroma_client.get_collection(name="ingestiq_content")
+    vector_collection = chroma_client.get_or_create_collection(name="ingestiq_content")
 except Exception as e:
     print(f"[ERROR] Failed to initialize clients for query endpoint: {e}")
     openai_client = None
@@ -63,15 +62,14 @@ async def query_endpoint(request: schemas.QueryRequest):
     if not openai_client or not vector_collection:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Query service is not properly configured."
+            detail="Query service is not properly configured.",
         )
 
     async def stream_rag_response():
         # 1. RETRIEVE: Get embedding for the user's query
         try:
             query_embedding_response = openai_client.embeddings.create(
-                input=[request.query],
-                model=settings.OPENAI_EMBEDDINGS_MODEL
+                input=[request.query], model=settings.OPENAI_EMBEDDINGS_MODEL
             )
             query_embedding = query_embedding_response.data[0].embedding
         except Exception as e:
@@ -84,11 +82,11 @@ async def query_endpoint(request: schemas.QueryRequest):
             results = vector_collection.query(
                 query_embeddings=[query_embedding],
                 n_results=5,
-                where={"client_id": request.client_id}
+                where={"client_id": request.client_id},
             )
-            
-            context_chunks = results['documents'][0]
-            metadatas = results['metadatas'][0]
+
+            context_chunks = results["documents"][0]
+            metadatas = results["metadatas"][0]
 
             if not context_chunks:
                 yield "I could not find any relevant documents for your client ID to answer this question."
@@ -104,11 +102,8 @@ async def query_endpoint(request: schemas.QueryRequest):
             f"Source: {meta['file_path']}\nContent: {doc}"
             for doc, meta in zip(context_chunks, metadatas)
         )
-        
-        prompt = RAG_PROMPT_TEMPLATE.format(
-            context=context_string,
-            query=request.query
-        )
+
+        prompt = RAG_PROMPT_TEMPLATE.format(context=context_string, query=request.query)
 
         # 4. GENERATE: Stream the response from OpenAI
         try:
@@ -117,18 +112,18 @@ async def query_endpoint(request: schemas.QueryRequest):
                 messages=[{"role": "user", "content": prompt}],
                 stream=True,
             )
-            
+
             # Yield each chunk of the answer as it arrives
             for chunk in stream:
                 content = chunk.choices[0].delta.content
                 if content:
                     yield content
-            
+
             # After the answer, yield the sources for clarity
             yield "\n\n---"
             yield "\n**Sources Consulted:**\n"
-            
-            unique_sources = {meta['file_path'] for meta in metadatas}
+
+            unique_sources = {meta["file_path"] for meta in metadatas}
             for source in sorted(list(unique_sources)):
                 yield f"- {source}\n"
 
@@ -137,4 +132,3 @@ async def query_endpoint(request: schemas.QueryRequest):
             yield f"Error: Failed to generate a response from the language model. Details: {e}"
 
     return StreamingResponse(stream_rag_response(), media_type="text/plain")
-

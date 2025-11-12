@@ -34,14 +34,17 @@ clean_artifacts() {
 
 clean_data() {
     log_action "Initiating full data and environment teardown..."
-    echo -e "${COLOR_RED}WARNING:${COLOR_RESET} This will permanently delete all local database data (Postgres, Mongo, Chroma) and stop all services."
+    echo -e "${COLOR_RED}WARNING:${COLOR_RESET} This will permanently delete all local database data (Postgres, Chroma) and stop all services."
     read -p "Are you sure you want to proceed? (y/N): " final_confirm
     if [[ ! "$final_confirm" =~ ^[Yy]$ ]]; then
         error "Data cleanup cancelled by user."
         exit 1
     fi
+    log_action "Stopping containers and removing Docker volumes..."
     docker compose down --volumes
-    log_success "All services stopped and data volumes removed."
+    log_action "Deleting local data directories..."
+    rm -rf ./local_data
+    log_success "Full data cleanup complete."
 }
 
 run_checks() {
@@ -103,12 +106,10 @@ main() {
         log_success "Services stopped."
         ;;
 
-    logs)
-        log_action "Following logs for 'api' and 'airflow-worker'. Press Ctrl+C to exit."
-        docker compose logs -f api airflow-worker
-        ;;
-
-    test)
+logs)
+    log_action "Following logs for all services. Press Ctrl+C to exit."
+    docker compose logs -f
+    ;;    test)
         run_checks
         ;;
 
