@@ -18,10 +18,9 @@ RUN apt-get update && \
 # Switch back to the non-root airflow user
 USER airflow
 
-# Install all project dependencies directly into the main Python environment.
-# This ensures they are available to the DAG parser and the worker.
+# Install our project dependencies, BUT DO NOT RE-INSTALL SQLAlchemy.
+# We will use the version that comes with the base image, which is guaranteed to be compatible.
 RUN pip install --no-cache-dir \
-    "SQLAlchemy==2.0.30" \
     "pika>=1.3.2" \
     "psycopg2-binary>=2.9.9" \
     "pymongo>=4.7.3" \

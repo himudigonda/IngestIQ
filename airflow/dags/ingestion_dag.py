@@ -1,23 +1,23 @@
 from __future__ import annotations
 
-import pendulum
 import json
 import os
+
+import pendulum
 import pika
-from sqlalchemy import create_engine, update
-from sqlalchemy.orm import sessionmaker, joinedload
-
-from airflow.models.dag import DAG
 from airflow.decorators import task
+from airflow.models.dag import DAG
 from airflow.sensors.python import PythonSensor
+from sqlalchemy import create_engine, update
+from sqlalchemy.orm import sessionmaker
 
-# Import our application code
-from core.models import IngestionJob, StatusEnum, ProcessingError
-from ingestion.file_processor import process_file
+# Application code will be imported inside tasks to avoid polluting the DAG parsing environment.
 
 
 # --- DATABASE & MESSAGE QUEUE SETUP ---
-DATABASE_URL = "postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432/ingestiq_db"
+DATABASE_URL = (
+    "postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432/ingestiq_db"
+)
 RABBITMQ_URL = "amqp://ingestiq:supersecretpassword@rabbitmq:5672/"
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -40,8 +40,8 @@ def check_for_job_message(**context):
         if method_frame:
             channel.basic_ack(method_frame.delivery_tag)
             connection.close()
-            job_id = json.loads(body.decode('utf-8'))['job_id']
-            context['ti'].xcom_push(key='job_id', value=job_id)
+            job_id = json.loads(body.decode("utf-8"))["job_id"]
+            context["ti"].xcom_push(key="job_id", value=job_id)
             print(f" [x] Received job_id '{job_id}' from RabbitMQ.")
             return True
     except pika.exceptions.AMQPConnectionError:
@@ -53,10 +53,17 @@ def check_for_job_message(**context):
 
 @task
 def set_job_to_processing(ti=None):
-    job_id = ti.xcom_pull(task_ids='check_for_new_job', key='job_id')
+    # Import inside the task
+    from core.models import IngestionJob, StatusEnum
+
+    job_id = ti.xcom_pull(task_ids="check_for_new_job", key="job_id")
     db = get_db_session()
     try:
-        stmt = update(IngestionJob).where(IngestionJob.id == job_id).values(status=StatusEnum.PROCESSING)
+        stmt = (
+            update(IngestionJob)
+            .where(IngestionJob.id == job_id)
+            .values(status=StatusEnum.PROCESSING)
+        )
         db.execute(stmt)
         db.commit()
         print(f"Job {job_id} status updated to PROCESSING.")
@@ -67,18 +74,30 @@ def set_job_to_processing(ti=None):
 
 @task
 def get_files_for_job(job_id: str):
+    # Import inside the task
+    from core.models import IngestionJob
+    from sqlalchemy.orm import joinedload
+
     """Fetches the list of files for a given job_id from Postgres."""
     db = get_db_session()
     try:
-        job = db.query(IngestionJob).options(joinedload(IngestionJob.files)).filter(IngestionJob.id == job_id).first()
+        job = (
+            db.query(IngestionJob)
+            .options(joinedload(IngestionJob.files))
+            .filter(IngestionJob.id == job_id)
+            .first()
+        )
         if not job or not job.files:
             return []
-        
-        # Return a list of dictionaries, which is JSON-serializable for XComs
+
         files_to_process = [
             {
                 "id": str(file.id),
-                "path": os.path.join("/opt/airflow", file.file_path) if not os.path.isabs(file.file_path) else file.file_path,
+                "path": (
+                    os.path.join("/opt/airflow", file.file_path)
+                    if not os.path.isabs(file.file_path)
+                    else file.file_path
+                ),
                 "job_id": str(job.id),
                 "client_id": job.client_id,
                 "metadata": file.file_metadata or {},
@@ -93,13 +112,15 @@ def get_files_for_job(job_id: str):
 
 @task
 def process_single_file_task(file_info: dict):
+    # Import inside the task
+    from ingestion.file_processor import process_file
+
     """
     A dynamically mapped task to process one file.
     It now includes its own DB session management.
     """
     db = get_db_session()
     try:
-        # The main processing logic is now called here
         process_file(file_info, db)
     finally:
         db.close()
@@ -107,21 +128,33 @@ def process_single_file_task(file_info: dict):
 
 @task
 def finalize_job_status(job_id: str):
+    # Import inside the task
+    from core.models import IngestionJob, ProcessingError, StatusEnum
+
     """
     Checks for errors and sets the final job status to COMPLETED or
     COMPLETED_WITH_ERRORS.
     """
     db = get_db_session()
     try:
-        error_count = db.query(ProcessingError).filter(ProcessingError.job_id == job_id).count()
-        
-        final_status = StatusEnum.COMPLETED_WITH_ERRORS if error_count > 0 else StatusEnum.COMPLETED
-        
-        stmt = update(IngestionJob).where(IngestionJob.id == job_id).values(status=final_status)
+        error_count = (
+            db.query(ProcessingError).filter(ProcessingError.job_id == job_id).count()
+        )
+        final_status = (
+            StatusEnum.COMPLETED_WITH_ERRORS
+            if error_count > 0
+            else StatusEnum.COMPLETED
+        )
+        stmt = (
+            update(IngestionJob)
+            .where(IngestionJob.id == job_id)
+            .values(status=final_status)
+        )
         db.execute(stmt)
         db.commit()
-        
-        print(f"Job {job_id} finalized with status: {final_status.value}. Found {error_count} errors.")
+        print(
+            f"Job {job_id} finalized with status: {final_status.value}. Found {error_count} errors."
+        )
     finally:
         db.close()
 
@@ -134,28 +167,17 @@ with DAG(
     schedule=None,
     tags=["ingestion", "rag"],
 ) as dag:
-    
-    # Task 1: Wait for a message and get the job_id
     check_for_new_job = PythonSensor(
         task_id="check_for_new_job",
         python_callable=check_for_job_message,
-        poke_interval=5,
-        timeout=300,
+        poke_interval=10,
+        timeout=600,
         mode="poke",
     )
-    
-    # Task 2: Set the job's status to PROCESSING
+
     job_id = set_job_to_processing()
-
-    # Task 3: Get the list of files for that job
     files_list = get_files_for_job(job_id)
-
-    # Task 4 (Fan-Out): Process each file in parallel
     processing = process_single_file_task.expand(file_info=files_list)
-
-    # Task 5 (Fan-In): Finalize the job status after all files are done
     finalize = finalize_job_status(job_id)
 
-    # Define the dependency chain
-    check_for_new_job >> job_id
-    job_id >> files_list >> processing >> finalize
+    check_for_new_job >> job_id >> files_list >> processing >> finalize
