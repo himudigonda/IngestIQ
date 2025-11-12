@@ -23,7 +23,6 @@ USER airflow
 RUN pip install --no-cache-dir \
     "pika>=1.3.2" \
     "psycopg2-binary>=2.9.9" \
-    "pymongo>=4.7.3" \
     "chromadb==0.5.0" \
     "numpy<2.0" \
     "openai>=1.35.3" \

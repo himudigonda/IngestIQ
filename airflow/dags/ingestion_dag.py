@@ -11,9 +11,6 @@ from airflow.sensors.python import PythonSensor
 from sqlalchemy import create_engine, update
 from sqlalchemy.orm import sessionmaker
 
-# Application code will be imported inside tasks to avoid polluting the DAG parsing environment.
-
-
 # --- DATABASE & MESSAGE QUEUE SETUP ---
 DATABASE_URL = (
     "postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432/ingestiq_db"
@@ -28,38 +25,38 @@ def get_db_session():
 
 
 # --- AIRFLOW TASK CALLABLES ---
-def check_for_job_message(**context):
+@task
+def get_job_id_from_queue() -> str:
     """
-    Called by the PythonSensor. It checks RabbitMQ for a message.
-    If a message is found, it pushes the job_id to XComs and returns True.
+    Checks RabbitMQ for a message. If found, it returns the job_id.
+    This replaces the PythonSensor for a cleaner TaskFlow implementation.
     """
     try:
         connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
         channel = connection.channel()
-        # Ensure the queue exists before trying to consume from it.
-        # This is an idempotent operation.
         channel.queue_declare(queue="ingestion_queue", durable=True)
         method_frame, header_frame, body = channel.basic_get(queue="ingestion_queue")
         if method_frame:
             channel.basic_ack(method_frame.delivery_tag)
             connection.close()
             job_id = json.loads(body.decode("utf-8"))["job_id"]
-            context["ti"].xcom_push(key="job_id", value=job_id)
             print(f" [x] Received job_id '{job_id}' from RabbitMQ.")
-            return True
+            return job_id
     except pika.exceptions.AMQPConnectionError:
-        print(" [!] Could not connect to RabbitMQ. Will retry.")
+        print(" [!] Could not connect to RabbitMQ.")
     except Exception as e:
-        print(f" [!] An error occurred in the sensor: {e}")
-    return False
+        print(f" [!] An error occurred: {e}")
+    # If no message, we must raise an exception to make the task retry.
+    from airflow.exceptions import AirflowSkipException
+
+    raise AirflowSkipException("No message in queue. Task will retry.")
 
 
 @task
-def set_job_to_processing(ti=None):
+def set_job_to_processing(job_id: str):
     # Import inside the task
     from core.models import IngestionJob, StatusEnum
 
-    job_id = ti.xcom_pull(task_ids="check_for_new_job", key="job_id")
     db = get_db_session()
     try:
         stmt = (
@@ -81,7 +78,6 @@ def get_files_for_job(job_id: str):
     from core.models import IngestionJob
     from sqlalchemy.orm import joinedload
 
-    """Fetches the list of files for a given job_id from Postgres."""
     db = get_db_session()
     try:
         job = (
@@ -96,11 +92,7 @@ def get_files_for_job(job_id: str):
         files_to_process = [
             {
                 "id": str(file.id),
-                "path": (
-                    os.path.join("/opt/airflow", file.file_path)
-                    if not os.path.isabs(file.file_path)
-                    else file.file_path
-                ),
+                "path": os.path.join("/opt/airflow", file.file_path),
                 "job_id": str(job.id),
                 "client_id": job.client_id,
                 "metadata": file.file_metadata or {},
@@ -118,10 +110,6 @@ def process_single_file_task(file_info: dict):
     # Import inside the task
     from ingestion.file_processor import process_file
 
-    """
-    A dynamically mapped task to process one file.
-    It now includes its own DB session management.
-    """
     db = get_db_session()
     try:
         process_file(file_info, db)
@@ -130,14 +118,11 @@ def process_single_file_task(file_info: dict):
 
 
 @task
-def finalize_job_status(job_id: str):
+def finalize_job_status(job_id: str, processed_files: list):
+    # This task now accepts a second argument to ensure it runs *after* processing.
     # Import inside the task
     from core.models import IngestionJob, ProcessingError, StatusEnum
 
-    """
-    Checks for errors and sets the final job status to COMPLETED or
-    COMPLETED_WITH_ERRORS.
-    """
     db = get_db_session()
     try:
         error_count = (
@@ -169,18 +154,12 @@ with DAG(
     catchup=False,
     schedule=None,
     tags=["ingestion", "rag"],
+    default_args={"retries": 3, "retry_delay": pendulum.duration(minutes=1)},
 ) as dag:
-    check_for_new_job = PythonSensor(
-        task_id="check_for_new_job",
-        python_callable=check_for_job_message,
-        poke_interval=10,
-        timeout=600,
-        mode="poke",
-    )
-
-    job_id = set_job_to_processing()
-    files_list = get_files_for_job(job_id)
-    processing = process_single_file_task.expand(file_info=files_list)
-    finalize = finalize_job_status(job_id)
-
-    check_for_new_job >> job_id >> files_list >> processing >> finalize
+    job_id = get_job_id_from_queue()
+    processing_job_id = set_job_to_processing(job_id)
+    files_list = get_files_for_job(processing_job_id)
+    # The .expand() call creates the parallel tasks
+    processed_files = process_single_file_task.expand(file_info=files_list)
+    # The finalize task now depends on the output of the mapped task
+    finalize_job_status(processing_job_id, processed_files)
