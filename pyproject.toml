@@ -2,7 +2,7 @@
 name = "IngestIQ"
 version = "0.1.0"
 description = "A multi-tenant, event-driven RAG ingestion and querying pipeline."
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     # Core API
     "fastapi>=0.111.0",
