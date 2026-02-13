@@ -1,32 +1,31 @@
 from contextlib import asynccontextmanager
+
+from api import auth, ingestion, query  # <--- Added Auth
+from core.database import create_db_and_tables
 from fastapi import FastAPI
-from api import ingestion, query  # Import the routers
-from core.database import create_db_and_tables # Import the init function
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Application starting up...")
-    create_db_and_tables() # Create tables on startup
+    create_db_and_tables()
     yield
     print("Application shutting down.")
 
 
 app = FastAPI(
-    title="IngestIQ API",
-    version="0.1.0",
-    description="API for the IngestIQ RAG Pipeline",
-    lifespan=lifespan
+    title="IngestIQ Secure API",
+    version="0.2.0",
+    description="SOC 2 Compliant RAG Pipeline",
+    lifespan=lifespan,
 )
 
 
 @app.get("/health", tags=["Monitoring"])
 async def health_check():
-    """Checks if the API is running."""
-    return {"status": "ok"}
+    return {"status": "ok", "security_mode": "enabled"}
 
 
-# Include the ingestion router in our main app
+app.include_router(auth.router, prefix="/api/v1/auth")  # <--- Login endpoint
 app.include_router(ingestion.router, prefix="/api/v1")
-# Include the new query router
 app.include_router(query.router, prefix="/api/v1")

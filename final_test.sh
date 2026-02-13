@@ -14,7 +14,7 @@ readonly COLOR_GREEN='\033[0;32m'
 readonly COLOR_YELLOW='\033[0;33m'
 readonly COLOR_BLUE='\033[0;34m'
 readonly COLOR_RESET='\033[0m'
-log() { echo -e "\n${COLOR_BLUE}====== $1 ======${COLOR_RESET}"; }
+log() { printf "\n${COLOR_BLUE}====== %s ======${COLOR_RESET}\n" "${1:-}"; }
 
 # --- MAIN TEST LOGIC ---
 
@@ -56,7 +56,7 @@ $(for i in {1..50}; do echo "3.$i: PTO requests must be submitted through the HR
 SECTION 4: REMOTE WORK
 Quantum Dynamics is a remote-first company. Employees may work from any location where they have a secure and reliable internet connection, provided it is within an approved country of operation.
 
-$(for i in {1..50}; do echo "4.$i: Employees are responsible for maintaining a safe and productive home office environment. The company provides a one-time stipend of $1000 for home office setup."; done)
+$(for i in {1..50}; do echo "4.$i: Employees are responsible for maintaining a safe and productive home office environment. The company provides a one-time stipend of \$1000 for home office setup."; done)
 
 SECTION 5: SECURITY
 All employees must complete mandatory annual security training. Company-issued devices must be encrypted and protected with a strong, unique password.
@@ -69,7 +69,7 @@ EOF
 FINANCE_FILE="$DATA_DIR/QD_Q3_2025_Financials.docx"
 log "Creating Financial Report: $FINANCE_FILE"
 # This reuses your existing script to generate a well-formatted DOCX
-python scripts/create_docx.py "$FINANCE_FILE"
+uv run scripts/create_docx.py "$FINANCE_FILE"
 
 # --- Document 3: Technical Whitepaper (Text File) ---
 TECH_FILE="$DATA_DIR/QEC_Whitepaper.txt"
@@ -120,7 +120,7 @@ Agenda Item 1: Review of Q3 Milestones
 $(for i in {1..125}; do echo "Discussion Point 1.$i: The team debated the merits of using a dilithium crystal matrix versus a standard plasma conduit. Dr. Reed insisted that while more expensive, the crystal matrix provides superior stability and is essential for meeting our long-term performance targets."; done)
 
 Agenda Item 2: Q4 Roadmap and Budget Allocation
-- Ms. Davis presented the marketing plan for the FusionDrive launch, requesting an additional $2M budget for a global digital campaign.
+- Ms. Davis presented the marketing plan for the FusionDrive launch, requesting an additional \$2M budget for a global digital campaign.
 
 $(for i in {1..125}; do echo "Discussion Point 2.$i: The committee reviewed the budget request. Mr. Chen noted that a portion of his engineering budget could be re-allocated if the decision is made to proceed with the more cost-effective plasma conduit, but this carries performance risks. It was decided to approve the marketing budget on a provisional basis."; done)
 
@@ -135,9 +135,23 @@ CORRUPT_FILE="$DATA_DIR/corrupt_security_audit.pdf"
 log "Creating Corrupt PDF: $CORRUPT_FILE"
 echo "This is not a valid PDF file and is designed to fail." > "$CORRUPT_FILE"
 
-# 3. INGEST THE DATA
-log "STEP 3: SENDING INGESTION REQUEST TO THE API"
+# 3. AUTHENTICATE (SOC 2 Requirement)
+log "STEP 3: AUTHENTICATING VIA OAUTH2"
+TOKEN_RESPONSE=$(curl -s -X POST "http://localhost:8001/api/v1/auth/token" \
+  -F "username=admin@ingestiq.com" \
+  -F "password=admin123")
+
+ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r .access_token)
+if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" == "null" ]; then
+    echo -e "${COLOR_RED}Authentication Failed. Aborting.${COLOR_RESET}"
+    exit 1
+fi
+echo "Authenticated successfully. Token acquired."
+
+# 4. INGEST WITH TOKEN
+log "STEP 4: SENDING INGESTION REQUEST TO THE API"
 RESPONSE=$(curl -s -X POST "http://localhost:8001/api/v1/ingest" \
+-H "Authorization: Bearer $ACCESS_TOKEN" \
 -H "Content-Type: application/json" \
 -d "{
   \"client_id\": \"$CLIENT_ID\",
@@ -159,13 +173,16 @@ echo "Ingestion job created successfully with ID: $JOB_ID"
 
 # 4. TRIGGER THE AIRFLOW DAG
 log "STEP 4: TRIGGERING THE AIRFLOW DAG VIA COMMAND LINE"
-docker compose run --rm airflow-cli dags trigger ingestion_pipeline --conf "{\"job_id\": \"$JOB_ID\"}"
-echo "DAG triggered. Waiting 75 seconds for the pipeline to complete..."
-sleep 75
+# Ensure DAG is unpaused (fallback)
+docker compose exec -T airflow-webserver airflow dags unpause ingestion_pipeline || true
+docker compose exec -T airflow-webserver airflow dags trigger ingestion_pipeline --conf "{\"job_id\": \"$JOB_ID\"}"
+echo "DAG triggered. Waiting 90 seconds for the pipeline to complete..."
+sleep 90
 
 # 5. VERIFY THE OUTCOME
 log "STEP 5: VERIFYING THE FINAL JOB STATUS VIA API"
-curl -s -X GET "http://localhost:8001/api/v1/jobs/$JOB_ID" | jq
+curl -s -X GET "http://localhost:8001/api/v1/jobs/$JOB_ID" \
+-H "Authorization: Bearer $ACCESS_TOKEN" | jq
 
 log "STEP 6: VERIFYING THAT VECTORS WERE STORED IN CHROMA"
 uv run scripts/verify_chroma.py "$CLIENT_ID"
@@ -174,6 +191,7 @@ uv run scripts/verify_chroma.py "$CLIENT_ID"
 log "STEP 7: PERFORMING REALISTIC RAG QUERIES"
 echo -e "${COLOR_YELLOW}\nQuery 1: How many days of unused PTO can be carried over to the next year?${COLOR_RESET}"
 curl -N -s -X POST "http://localhost:8001/api/v1/query" \
+-H "Authorization: Bearer $ACCESS_TOKEN" \
 -H "Content-Type: application/json" \
 -d "{
   \"client_id\": \"$CLIENT_ID\",
@@ -182,6 +200,7 @@ curl -N -s -X POST "http://localhost:8001/api/v1/query" \
 
 echo -e "\n\n${COLOR_YELLOW}Query 2: What does QEC stand for?${COLOR_RESET}"
 curl -N -s -X POST "http://localhost:8001/api/v1/query" \
+-H "Authorization: Bearer $ACCESS_TOKEN" \
 -H "Content-Type: application/json" \
 -d "{
   \"client_id\": \"$CLIENT_ID\",
@@ -190,6 +209,7 @@ curl -N -s -X POST "http://localhost:8001/api/v1/query" \
 
 echo -e "\n\n${COLOR_YELLOW}Query 3: What was the decision regarding the marketing budget for FusionDrive?${COLOR_RESET}"
 curl -N -s -X POST "http://localhost:8001/api/v1/query" \
+-H "Authorization: Bearer $ACCESS_TOKEN" \
 -H "Content-Type: application/json" \
 -d "{
   \"client_id\": \"$CLIENT_ID\",

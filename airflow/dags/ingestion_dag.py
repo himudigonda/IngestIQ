@@ -11,11 +11,15 @@ from airflow.sensors.python import PythonSensor
 from sqlalchemy import create_engine, update
 from sqlalchemy.orm import sessionmaker
 
-# --- DATABASE & MESSAGE QUEUE SETUP ---
-DATABASE_URL = (
-    "postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432/ingestiq_db"
-)
-RABBITMQ_URL = "amqp://ingestiq:supersecretpassword@rabbitmq:5672/"
+# SOC 2 Control: Secrets Management
+DATABASE_URL = os.getenv("AIRFLOW__DATABASE__SQL_ALCHEMY_CONN")
+RABBITMQ_URL = os.getenv("AIRFLOW__CELERY__BROKER_URL")
+
+if not DATABASE_URL or not RABBITMQ_URL:
+    raise ValueError(
+        "Critical security error: Missing environment variables for DB or Queue."
+    )
+
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

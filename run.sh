@@ -70,9 +70,21 @@ main() {
 
     case "$command" in
     up)
+        if [ ! -f .env ]; then
+            error "Security Check Failed: .env file missing. Please copy .env.example and configure secrets."
+            exit 1
+        fi
         log_action "Building and starting all IngestIQ services..."
         docker compose up --build -d
-        log_success "All services are starting. Use './run.sh logs' to monitor."
+        
+        log_action "Waiting for database..."
+        sleep 10
+        
+        log_action "Initializing Security (Admin User)..."
+        # Run the script inside the API container to access DB
+        docker compose exec -T api python scripts/create_admin.py
+        
+        log_success "System is up and secured."
         ;;
 
     down)
@@ -93,10 +105,21 @@ main() {
     reset)
         log_action "--- Starting Full Environment Reset ---"
         clean_all
+        if [ ! -f .env ]; then
+            error "Security Check Failed: .env file missing. Please copy .env.example and configure secrets."
+            exit 1
+        fi
         log_action "Building and starting all IngestIQ services..."
         docker compose up --build -d
+        
+        log_action "Waiting for database..."
+        sleep 10
+        
+        log_action "Initializing Security (Admin User)..."
+        docker compose exec -T api python scripts/create_admin.py
+        
         log_success "--- Environment Reset Complete ---"
-        log "All services are starting. Use './run.sh logs' to monitor."
+        log "System is up and secured."
         ;;
 
     help|--help|-h)

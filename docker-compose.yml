@@ -9,6 +9,7 @@ services:
       - "8001:8000"
     volumes:
       - ./app:/app
+      - ./scripts:/app/scripts
     env_file: .env
     environment:
       - PYTHONPATH=/app
@@ -26,6 +27,11 @@ services:
     volumes:
       - ./local_data/postgres_data:/var/lib/postgresql/data
     env_file: .env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # 4. RabbitMQ for Messaging (No changes here)
   rabbitmq:
@@ -35,6 +41,11 @@ services:
       - "5672:5672"
       - "15672:15672"
     env_file: .env
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # 5. ChromaDB for Vector Storage (No changes here)
   chroma:
@@ -58,19 +69,24 @@ services:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./app:/opt/airflow/app # Mount our app code
+      - ./local_data:/opt/airflow/local_data
     env_file: .env
     environment:
-      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
-      - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
-      - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - AIRFLOW__CELERY__BROKER_URL=amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - AIRFLOW__WEBSERVER__SECRET_KEY=a_super_secret_key_for_webserver_sessions # Add a static secret key
-      - PYTHONPATH=/opt/airflow/app # Simplified PYTHONPATH
+      - AIRFLOW__WEBSERVER__SECRET_KEY=${SECRET_KEY}
+      - PYTHONPATH=/opt/airflow/app
     depends_on:
-      - postgres
-      - rabbitmq
-      - chroma
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      chroma:
+        condition: service_started
     command: webserver
 
   airflow-scheduler:
@@ -82,44 +98,27 @@ services:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./app:/opt/airflow/app
+      - ./local_data:/opt/airflow/local_data
     env_file: .env
     environment:
-      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
-      - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
-      - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - AIRFLOW__CELERY__BROKER_URL=amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - AIRFLOW__WEBSERVER__SECRET_KEY=a_super_secret_key_for_webserver_sessions
+      - AIRFLOW__WEBSERVER__SECRET_KEY=${SECRET_KEY}
       - PYTHONPATH=/opt/airflow/app
     depends_on:
-      - postgres
-      - rabbitmq
-      - chroma
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      chroma:
+        condition: service_started
     command: scheduler
 
-  airflow-worker:
-    build:
-      context: .
-      dockerfile: airflow/Dockerfile
-    container_name: ingestiq_airflow_worker
-    volumes:
-      - ./airflow/dags:/opt/airflow/dags
-      - ./airflow/logs:/opt/airflow/logs
-      - ./app:/opt/airflow/app
-      - ./local_data:/opt/airflow/local_data # This is CRITICAL for accessing files
-    env_file: .env
-    environment:
-      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
-      - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
-      - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - AIRFLOW__WEBSERVER__SECRET_KEY=a_super_secret_key_for_webserver_sessions
-      - PYTHONPATH=/opt/airflow/app
-    depends_on:
-      - airflow-scheduler
-      - chroma
-    command: celery worker
+    # Removed worker as LocalExecutor handled it
 
   # This service runs once to initialize the Airflow database
   airflow-init:
@@ -129,19 +128,30 @@ services:
     container_name: ingestiq_airflow_init
     env_file: .env
     environment:
-      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
-      - AIRFLOW__CELERY__BROKER_URL=amqp://ingestiq:supersecretpassword@rabbitmq:5672/
-      - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql://ingestiq:supersecretpassword@postgres:5432/ingestiq_db
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - AIRFLOW__CELERY__BROKER_URL=amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
       - PYTHONPATH=/opt/airflow/app
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./app:/opt/airflow/app
+      - ./local_data:/opt/airflow/local_data
     depends_on:
       - postgres
       - rabbitmq
     command: >
       bash -c "
         airflow db init &&
-        airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin
+        airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin &&
+        echo 'Waiting for DAG to be discovered...' &&
+        for i in {1..30}; do
+          if airflow dags list | grep -q ingestion_pipeline; then
+            airflow dags unpause ingestion_pipeline && exit 0
+          fi
+          sleep 2
+        done
+        echo 'Timeout waiting for DAG discovery' && exit 1
       "
 
 volumes:

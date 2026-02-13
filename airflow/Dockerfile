@@ -21,6 +21,9 @@ USER airflow
 # Install our project dependencies, BUT DO NOT RE-INSTALL SQLAlchemy.
 # We will use the version that comes with the base image, which is guaranteed to be compatible.
 RUN pip install --no-cache-dir \
+    "bcrypt" \
+    "passlib[bcrypt]>=1.7.4" \
+    "python-jose[cryptography]>=3.3.0" \
     "pika>=1.3.2" \
     "psycopg2-binary>=2.9.9" \
     "chromadb==0.5.0" \

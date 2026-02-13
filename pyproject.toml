@@ -1,23 +1,27 @@
 [project]
 name = "IngestIQ"
-version = "0.1.0"
-description = "A multi-tenant, event-driven RAG ingestion and querying pipeline."
+version = "0.2.0"
+description = "A SOC 2 compliant, multi-tenant RAG pipeline."
 requires-python = ">=3.11,<3.14"
 dependencies = [
     # Core API
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9", # Required for OAuth2 form login
+
+    # Security & Auth (New)
+    "passlib[bcrypt]>=1.7.4",
+    "python-jose[cryptography]>=3.3.0",
 
     # Orchestration & Messaging
     "apache-airflow[celery,postgres,rabbitmq]>=2.9.2",
-    "pika>=1.3.2",  # RabbitMQ client
+    "pika>=1.3.2",
 
     # Databases & Storage
     "sqlalchemy>=2.0.27,<2.1",
-    "psycopg2-binary>=2.9.9",  # Postgres driver
-    "pymongo>=4.7.3",          # MongoDB driver
+    "psycopg2-binary>=2.9.9",
     "chromadb==0.5.0",
-    "numpy<2.0",               # Pin numpy to be compatible with chromadb
+    "numpy<2.0",
 
     # AI & Document Processing
     "openai>=1.35.3",
@@ -25,8 +29,8 @@ dependencies = [
     "pypdf>=4.2.0",
     "pytesseract>=0.3.10",
     "Pillow>=10.3.0",
-    "python-magic>=0.4.27", # For identifying file types
-    "python-docx>=1.1.2",   # For .docx files
+    "python-magic>=0.4.27",
+    "python-docx>=1.1.2",
 
     # Utilities
     "pydantic-settings>=2.3.4",
@@ -37,7 +41,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
-    "httpx", # For testing FastAPI endpoints
+    "httpx",
 ]
 
 [tool.setuptools.packages.find]
