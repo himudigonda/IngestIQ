@@ -1,75 +1,55 @@
-# IngestIQ
+# IngestIQ: Secure Enterprise RAG Pipeline
 
-A multi-tenant, event-driven RAG (Retrieval-Augmented Generation) ingestion and querying pipeline.
+![Status](https://img.shields.io/badge/Status-Production%20Ready-green)
+![Security](https://img.shields.io/badge/Security-SOC2%20Aligned-blue)
 
-## Overview
+## 🏢 Executive Summary
 
-IngestIQ is a production-ready system designed for ingesting, processing, and querying documents using RAG technology. It supports multiple file formats, idempotent processing, and provides a robust API for both ingestion and querying.
+IngestIQ is a high-assurance, multi-tenant Retrieval-Augmented Generation (RAG) platform. It is engineered to adhere to strict **SOC 2 Type II** controls regarding security, confidentiality, and processing integrity.
 
-## Architecture
+## 🔐 Compliance Architecture (AICPA Trust Services Criteria)
 
-The system is built with:
+| Control | Implementation |
+| :--- | :--- |
+| **Confidentiality (C1.1)** | Strict tenant isolation. Users are cryptographically bound to a specific `client_id` via JWT. |
+| **Logical Access (CC6.1)** | Role-Based Access Control (RBAC). No anonymous access allowed. |
+| **Secrets Management (CC6.6)** | Zero hardcoded secrets. Configuration injected via environment variables. |
+| **Audit Trails (CC7.2)** | Immutable `audit_logs` table records every ingestion and query event with user attribution. |
 
-- **FastAPI**: REST API for ingestion and querying
-- **Apache Airflow**: Workflow orchestration
-- **PostgreSQL**: Metadata and job state storage
-- **MongoDB**: Raw text caching
-- **RabbitMQ**: Event-driven messaging
-- **ChromaDB**: Vector storage for embeddings
-- **OpenAI**: LLM and embeddings generation
+## 🚀 Secure Setup
 
-## Getting Started
+1. **Configure Secrets:**
 
-### Prerequisites
+   ```bash
+   cp .env.example .env
+   # Edit .env to set secure passwords
+   ```
 
-- Docker and Docker Compose
-- Python 3.11+ (if running locally)
-- uv package manager (recommended)
+2. **Launch & Initialize:**
 
-### Setup
+   ```bash
+   ./run.sh up
+   ```
 
-1. Clone the repository
+   *This will start the stack and auto-generate an initial admin user (`admin@ingestiq.com`).*
 
-2. Create a `.env` file in the root directory with your configuration (see `.env.example` for reference)
+3. **Validate Security:**
 
-3. Build and start all services:
+   ```bash
+   ./final_test.sh
+   ```
 
-```bash
-docker-compose up -d --build
-```
+   *Runs a full integration test including OAuth2 authentication flow.*
 
-### Services
+## 📡 API Reference
 
-Once running, the following services will be available:
+**Base URL:** `http://localhost:8001/api/v1`
 
-- **API**: http://localhost:8000 (docs at http://localhost:8000/docs)
-- **Airflow UI**: http://localhost:8080 (username: `admin`, password: `admin`)
-- **RabbitMQ Management**: http://localhost:15672 (credentials from `.env`)
-- **PostgreSQL**: localhost:5432
-- **MongoDB**: localhost:27017
+* **Auth:** `POST /auth/token` (Get Bearer Token)
+* **Ingest:** `POST /ingest` (Requires `Authorization: Bearer <token>`)
+* **Query:** `POST /query` (Requires `Authorization: Bearer <token>`)
 
-### Health Checks
+## 📜 License
 
-- API Health: `GET http://localhost:8000/health`
-
-## Project Structure
-
-```
-IngestIQ/
-├── airflow/           # Airflow DAGs, plugins, and logs
-├── app/               # FastAPI application code
-│   ├── api/          # API endpoints
-│   ├── core/         # Core configuration and utilities
-│   └── ingestion/    # Ingestion logic
-├── local_data/       # Local database volumes
-└── docker-compose.yml # Multi-container orchestration
-```
-
-## Development
-
-This project uses `uv` for package management. See `pyproject.toml` for dependencies.
-
-## License
-
-[Your License Here]
+Internal Restricted
 
