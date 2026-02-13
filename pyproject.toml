@@ -2,6 +2,8 @@
 name = "IngestIQ"
 version = "0.2.0"
 description = "A SOC 2 compliant, multi-tenant RAG pipeline."
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.11,<3.14"
 dependencies = [
     # Core API
